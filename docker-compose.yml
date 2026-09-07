@@ -1,0 +1,38 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - qdrant
+    ports:
+      - "${API_PORT:-8000}:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build: .
+    env_file: .env
+    depends_on:
+      - postgres
+      - qdrant
+    command: python -m app.worker
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: rag
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - qdrant_data:/qdrant/storage
+    ports:
+      - "6333:6333"
+
+volumes:
+  postgres_data:
+  qdrant_data:
