@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     top_k: int = 6
     min_retrieval_score: float = 0.30
 
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-3.7-flash"
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
