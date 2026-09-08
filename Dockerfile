@@ -11,7 +11,16 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+
+# Install CPU-only PyTorch separately.
+RUN python -m pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.14.0
+
+# Install everything else from normal PyPI.
+RUN python -m pip install --no-cache-dir \
+    --index-url https://pypi.org/simple \
+    -r requirements.txt
 
 COPY app ./app
 

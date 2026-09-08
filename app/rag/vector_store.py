@@ -36,7 +36,7 @@ class VectorStore:
         # Delete old vectors for this resource before inserting the new version.
         self.client.delete(
             collection_name=self.collection,
-            points_selector=FilterSelector.resource_id(resource_id).to_filter(),
+            points_selector=FilterSelector(resource_id).to_filter(),
         )
 
         points = []

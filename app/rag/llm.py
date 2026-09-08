@@ -1,5 +1,9 @@
 from __future__ import annotations
+import random
+import time
 
+from google import genai
+from google.genai import errors, types
 from google import genai
 from google.genai import types
 
@@ -40,15 +44,36 @@ class LLMService:
             f"Question: {question}"
         )
 
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                temperature=0,
-            ),
-        )
+        max_retries = 3
 
-        return response.text or (
-            "I could not generate an answer from the available website data."
-        )
+        for attempt in range(max_retries + 1):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0,
+                    ),
+                )
+
+                return response.text or (
+                    "I could not generate an answer from the available website data."
+                )
+
+            except errors.APIError as exc:
+                # Retry only temporary server-side errors.
+                if exc.code != 503:
+                    raise
+
+                # No more retries.
+                if attempt == max_retries:
+                    return (
+                        "Gemini is temporarily unavailable because the model is "
+                        "experiencing high demand. Please try again shortly."
+                    )
+
+                # Exponential backoff + small random jitter.
+                delay = (2 ** attempt) + random.uniform(0, 1)
+                time.sleep(delay)
+        return "NO ANSWER"
