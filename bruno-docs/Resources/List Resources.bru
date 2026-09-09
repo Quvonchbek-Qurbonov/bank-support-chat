@@ -1,0 +1,15 @@
+meta {
+  name: List Resources
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/resources
+  body: none
+  auth: none
+}
+
+params:query {
+  limit: 50
+}
