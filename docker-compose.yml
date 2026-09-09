@@ -16,6 +16,7 @@ services:
       - postgres
       - qdrant
     command: python -m app.worker
+    gpus: all
 
   postgres:
     image: postgres:17-alpine

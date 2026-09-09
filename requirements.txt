@@ -9,4 +9,3 @@ sentence-transformers>=5.1.0
 groq
 beautifulsoup4>=4.13.5
 lxml>=6.0.1
-

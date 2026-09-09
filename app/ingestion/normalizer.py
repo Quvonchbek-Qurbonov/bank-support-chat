@@ -47,58 +47,94 @@ def normalize_whitespace(value: str) -> str:
 
 
 def extract_page_text(page: dict[str, Any]) -> tuple[str, str | None]:
+    sections, title = extract_page_sections(page)
+
+    text = normalize_whitespace("\n\n".join(sections))
+
+    return text, title
+
+def extract_page_sections(page: dict[str, Any]) -> tuple[list[str], str | None]:
     data = page.get("data") or {}
+
     if not isinstance(data, dict):
-        return "", None
+        return [], None
 
     title: str | None = None
+
     seo = data.get("seo")
     if isinstance(seo, dict) and isinstance(seo.get("title"), str):
         title = strip_html(seo["title"])
 
-    lines: list[str] = []
+    prefix: list[str] = []
 
     code = data.get("code")
     if code:
-        lines.append(f"Page: {code}")
+        prefix.append(f"Page: {code}")
 
     breadcrumb = data.get("breadCrumb")
     if isinstance(breadcrumb, list):
         crumbs = []
+
         for item in breadcrumb:
             if isinstance(item, dict) and isinstance(item.get("title"), str):
                 crumbs.append(strip_html(item["title"]))
+
         if crumbs:
-            lines.append(f"Breadcrumb: {' > '.join(crumbs)}")
+            prefix.append(f"Breadcrumb: {' > '.join(crumbs)}")
 
-    sections = data.get("sections")
-    if isinstance(sections, list):
-        for section in sections:
-            if not isinstance(section, dict):
+    sections: list[str] = []
+
+    raw_sections = data.get("sections")
+
+    if not isinstance(raw_sections, list):
+        return [], title
+
+    for section in raw_sections:
+        if not isinstance(section, dict):
+            continue
+
+        section_lines = list(prefix)
+
+        section_title = section.get("title")
+        section_code = section.get("code")
+
+        if section_title:
+            section_lines.append(
+                f"Section: {strip_html(str(section_title))}"
+            )
+        elif section_code:
+            section_lines.append(f"Section: {section_code}")
+
+        blocks = section.get("blocks", [])
+
+        if not isinstance(blocks, list):
+            continue
+
+        for block in blocks:
+            if not isinstance(block, dict):
                 continue
-            section_title = section.get("title")
-            section_code = section.get("code")
-            if section_title:
-                lines.append(f"Section: {strip_html(str(section_title))}")
-            elif section_code:
-                lines.append(f"Section: {section_code}")
 
-            for block in section.get("blocks", []) or []:
-                if not isinstance(block, dict):
-                    continue
-                block_type = block.get("type")
-                if block_type:
-                    lines.append(f"Block: {block_type}")
-                content = block.get("content")
-                if content is not None:
-                    _flatten_content(content, lines, depth=0)
+            block_lines: list[str] = []
 
-    last_updated = data.get("lastUpdatedDate")
-    if last_updated:
-        lines.append(f"Source updated: {last_updated}")
+            block_type = block.get("type")
 
-    text = normalize_whitespace("\n".join(lines))
-    return text, title
+            if block_type:
+                block_lines.append(f"Block: {block_type}")
+
+            content = block.get("content")
+
+            if content is not None:
+                _flatten_content(content, block_lines, depth=0)
+
+            if block_lines:
+                section_lines.extend(block_lines)
+
+        text = normalize_whitespace("\n".join(section_lines))
+
+        if text:
+            sections.append(text)
+
+    return sections, title
 
 
 def _flatten_content(value: Any, lines: list[str], depth: int, key: str | None = None) -> None:
@@ -173,3 +209,21 @@ def chunk_text(text: str, size: int, overlap: int) -> list[str]:
         tail = previous[-overlap:]
         adjusted.append(f"{tail}\n{current}")
     return adjusted
+
+def chunk_sections(
+    sections: list[str],
+    size: int,
+    overlap: int,
+) -> list[str]:
+    chunks: list[str] = []
+
+    for section in sections:
+        chunks.extend(
+            chunk_text(
+                section,
+                size=size,
+                overlap=overlap,
+            )
+        )
+
+    return chunks

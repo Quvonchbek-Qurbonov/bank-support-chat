@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://qdrant:6333"
     qdrant_collection: str = "agrobank_pages"
 
+    embedding_device: str = "cuda"
+    embedding_batch_size: int = 64
     embedding_model: str = "intfloat/multilingual-e5-small"
     embedding_dim: int = 384
     chunk_size: int = 1200
@@ -26,6 +28,8 @@ class Settings(BaseSettings):
 
     groq_api_key: str = ""
     groq_model: str = "openai/gpt-oss-20b"
+
+    sync_http_concurrency: int = 8
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
