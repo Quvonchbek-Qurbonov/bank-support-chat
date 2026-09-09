@@ -140,11 +140,18 @@ class SyncService:
 
     def _mark_missing_resources(self, seen_codes: set[str]) -> None:
         session = SessionLocal()
+
         try:
-            resources = session.scalars(select(Resource).where(Resource.is_active.is_(True))).all()
+            resources = session.scalars(select(Resource)).all()
+
             for resource in resources:
                 if resource.code not in seen_codes:
-                    resource.is_active = False
+                    if resource.is_active:
+                        self.vector_store.delete_resource_chunks(resource.id)
+                        resource.is_active = False
+                    else:
+                        self.vector_store.delete_resource_chunks(resource.id)
+
             session.commit()
         finally:
             session.close()

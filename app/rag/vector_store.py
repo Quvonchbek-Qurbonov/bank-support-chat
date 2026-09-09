@@ -60,6 +60,14 @@ class VectorStore:
         if points:
             self.client.upsert(collection_name=self.collection, points=points, wait=True)
 
+    def delete_resource_chunks(self, resource_id: int) -> None:
+        """Delete all Qdrant vectors belonging to a resource."""
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=FilterSelector(resource_id).to_filter(),
+            wait=True,
+        )
+
     def search(self, vector: list[float], limit: int, language: str | None = None) -> list[dict[str, Any]]:
         query_filter = None
         if language:
