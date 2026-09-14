@@ -25,10 +25,10 @@ RUN python -m pip install \
     --no-index \
     --find-links=/tmp/packages \
     -r requirements.txt \
-    && rm -rf /tmp/packages
+    && rm -rf /tmp/ Copy application
+COPY app/ ./app/packages
 
-# Copy application
-COPY app/ ./app/
+#
 
 EXPOSE 8000
 
