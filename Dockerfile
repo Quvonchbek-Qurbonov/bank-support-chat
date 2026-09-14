@@ -26,8 +26,7 @@ RUN python -m pip install \
     --find-links=/tmp/packages \
     -r requirements.txt \
     && rm -rf /tmp/ Copy application
-COPY app/ ./app/packages
-
+COPY app/ ./app
 #
 
 EXPOSE 8000
