@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from app.core.config import get_settings
+from app.core.config import settings
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class DiscoveredPage:
 class ReferenceExtractor:
     """Find internal Agrobank page routes inside arbitrary API JSON."""
 
-    LINK_KEYS = {
+    LINK_KEYS: set[str] = {
         "path",
         "url",
         "buttonLink",
@@ -25,29 +25,28 @@ class ReferenceExtractor:
     }
 
     def __init__(self) -> None:
-        self.settings = get_settings()
-        self.base_host = urlparse(self.settings.bank_base_url).netloc
+        self.base_host = urlparse(settings.bank_base_url).netloc  #removes http:// and query/path params
 
     def extract_page_codes(self, payload: Any, current_language: str) -> set[str]:
         found: set[str] = set()
         self._walk(payload, current_language, found)
         return found
 
-    def _walk(self, value: Any, language: str, found: set[str], key: str | None = None) -> None:
-        if isinstance(value, dict):
-            for child_key, child_value in value.items():
+    def _walk(self, payload: Any, language: str, found: set[str], key: str | None = None) -> None:
+        if isinstance(payload, dict):
+            for child_key, child_value in payload.items():
                 self._walk(child_value, language, found, child_key)
             return
 
-        if isinstance(value, list):
-            for child in value:
+        if isinstance(payload, list):
+            for child in payload:
                 self._walk(child, language, found, key)
             return
 
-        if not isinstance(value, str) or key not in self.LINK_KEYS:
+        if not isinstance(payload, str) or key not in self.LINK_KEYS:
             return
 
-        route = self._to_internal_route(value, language)
+        route = self._to_internal_route(payload, language)
         if route:
             found.add(route)
 
@@ -80,7 +79,7 @@ class ReferenceExtractor:
 
         # API page codes always begin with a language segment.
         first = route.split("/", 1)[0]
-        if first not in self.settings.languages:
+        if first not in settings.languages:
             route = f"{language}/{route}"
 
         return route
@@ -95,7 +94,7 @@ def menu_page_codes(menu: dict[str, Any], language: str) -> set[str]:
     found: set[str] = set()
 
     language_menu = menu.get(language, {})
-    for root_name in ("main", "footer"):
+    for root_name in ("main", "footer", "send-appeal"):
         for item in language_menu.get(root_name, []) or []:
             _walk_menu_item(item, language, "", found)
 
@@ -109,8 +108,7 @@ def _walk_menu_item(item: dict[str, Any], language: str, parent: str, found: set
 
     external_link = str(item.get("externalLink", "")).strip()
     if external_link.startswith(("http://", "https://")):
-        from urllib.parse import urlparse
-        if urlparse(external_link).netloc and urlparse(external_link).netloc != urlparse(get_settings().bank_base_url).netloc:
+        if urlparse(external_link).netloc and urlparse(external_link).netloc != urlparse(settings.bank_base_url).netloc:
             return
 
     normalized = path.strip("/")

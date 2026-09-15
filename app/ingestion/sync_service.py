@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from app.core.config import get_settings
+from app.core.config import settings
 from app.db import Resource, SessionLocal
 from app.ingestion.bank_client import AgrobankClient
 from app.ingestion.discovery import (
@@ -30,7 +30,6 @@ logger = logging.getLogger("agrobank.sync")
 
 class SyncService:
     def __init__(self) -> None:
-        self.settings = get_settings()
 
         self.client = AgrobankClient()
         self.extractor = ReferenceExtractor()
@@ -38,7 +37,7 @@ class SyncService:
         self.vector_store = VectorStore()
 
         self.http_semaphore = asyncio.Semaphore(
-            self.settings.sync_http_concurrency
+            settings.sync_http_concurrency
         )
 
     def close(self) -> None:
@@ -64,12 +63,12 @@ class SyncService:
 
         logger.info("Starting Agrobank synchronization")
 
-        menu = await self.client.get_menu()
+        menu = await self.client.get_menu()  #gets menu.json
 
         queue: deque[tuple[str, str | None]] = deque()
         queued: set[str] = set()
 
-        for language in self.settings.languages:
+        for language in settings.languages:
             for code in menu_page_codes(
                 menu,
                 language,
@@ -86,14 +85,10 @@ class SyncService:
             len(queue),
         )
 
-        # Process discovery in waves.
-        #
-        # Each wave fetches multiple pages concurrently.
-        # Newly discovered child pages are added to the next wave.
         while queue:
             batch: list[tuple[str, str | None]] = []
 
-            while queue and len(batch) < self.settings.sync_http_concurrency:
+            while queue and len(batch) < settings.sync_http_concurrency:
                 code, discovered_from = queue.popleft()
 
                 if code in visited:
@@ -232,8 +227,8 @@ class SyncService:
 
             chunks = chunk_text(
                 page_text,
-                self.settings.chunk_size,
-                self.settings.chunk_overlap,
+                settings.chunk_size,
+                settings.chunk_overlap,
             )
 
             children = self.extractor.extract_page_codes(
@@ -376,11 +371,11 @@ class SyncService:
         ).get("lastUpdatedDate")
 
         page_url = (
-            f"{self.settings.bank_base_url}/{code}"
+            f"{settings.bank_base_url}/{code}"
         )
 
         api_url = (
-            f"{self.settings.bank_api_url}"
+            f"{settings.bank_api_url}"
             f"?action=pages&code={code}"
         )
 

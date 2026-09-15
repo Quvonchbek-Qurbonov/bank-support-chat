@@ -4,13 +4,11 @@ from typing import Any
 
 import httpx
 
-from app.core.config import get_settings
+from app.core.config import settings, Settings
 
 
 class AgrobankClient:
     def __init__(self) -> None:
-        settings = get_settings()
-        self.settings = settings
 
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -27,8 +25,8 @@ class AgrobankClient:
         await self.client.aclose()
 
     async def get_menu(self) -> dict[str, Any]:
-        response = await self.client.get(
-            self.settings.bank_menu_url,
+        response = await self.client.get(        # MAKES REQUEST TO AGROBANK'S OFFICIAL WEBSITE TO GET menu.json
+            settings.bank_menu_url,
         )
         response.raise_for_status()
 
@@ -44,9 +42,9 @@ class AgrobankClient:
     async def get_page(
         self,
         code: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any]:                        #get's pages other than main pages based on backend api and page code
         response = await self.client.get(
-            self.settings.bank_api_url,
+            settings.bank_api_url,
             params={
                 "action": "pages",
                 "code": code.lstrip("/"),
