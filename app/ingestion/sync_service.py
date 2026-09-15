@@ -43,8 +43,8 @@ class SyncService:
     def close(self) -> None:
         asyncio.run(self.client.close())
 
-    def sync(self) -> dict[str, Any]:
-        return asyncio.run(self._sync_async())
+    async def sync(self):
+        return await self._sync_async()
 
     async def _sync_async(self) -> dict[str, Any]:
         started = time.monotonic()

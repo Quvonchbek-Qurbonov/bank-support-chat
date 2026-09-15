@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import asyncio
 
 from app.core.config import get_settings
 from app.db import init_db
@@ -16,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger("agrobank.worker")
 
 
-def main() -> None:
+async def main() -> None:
     settings = get_settings()
 
     init_db()
@@ -46,7 +47,7 @@ def main() -> None:
             )
 
             try:
-                stats = service.sync()
+                stats = await service.sync()
 
                 logger.info(
                     "===== SYNC #%s FINISHED =====",
@@ -87,13 +88,13 @@ def main() -> None:
                 elapsed,
             )
 
-            time.sleep(
+            await asyncio.sleep(
                 settings.sync_interval_seconds
             )
 
     finally:
-        service.close()
+        await service.close()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

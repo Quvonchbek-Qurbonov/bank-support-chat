@@ -5,7 +5,7 @@ import logging
 import torch
 from sentence_transformers import SentenceTransformer
 
-from app.core.config import get_settings
+from app.core.config import settings
 
 
 logger = logging.getLogger("agrobank.embeddings")
@@ -13,40 +13,27 @@ logger = logging.getLogger("agrobank.embeddings")
 
 class EmbeddingService:
     def __init__(self) -> None:
-        settings = get_settings()
 
         self.batch_size = settings.embedding_batch_size
+        self.device = settings.embedding_device
 
-        requested_device = settings.embedding_device
-
-        if requested_device == "cuda":
-            if not torch.cuda.is_available():
-                logger.warning(
-                    "CUDA requested but unavailable. Falling back to CPU."
-                )
-                self.device = "cpu"
-            else:
-                self.device = "cuda"
-        else:
-            self.device = requested_device
+        if not torch.cuda.is_available():
+            logger.warning(
+                "CUDA requested but unavailable. Falling back to CPU."
+            )
+            self.device = "cpu"
 
         logger.info(
-            "Loading embedding model=%s device=%s batch_size=%s",
+            "Loading embedding MODEL=%s DEVICE=%s GPU=%s",
             settings.embedding_model,
             self.device,
-            self.batch_size,
+            torch.cuda.get_device_name(0) if self.device == "cuda" else "Your cpu",
         )
 
         self.model = SentenceTransformer(
             settings.embedding_model,
             device=self.device,
         )
-
-        if self.device == "cuda":
-            logger.info(
-                "Embedding GPU: %s",
-                torch.cuda.get_device_name(0),
-            )
 
         logger.info("Embedding model loaded")
 

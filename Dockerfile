@@ -26,6 +26,8 @@ RUN python -m pip install \
     --find-links=/tmp/packages \
     -r requirements.txt \
     && rm -rf /tmp/ Copy application
+
+COPY models/multilingual-e5-small/ /models/multilingual-e5-small/
 COPY app/ ./app
 #
 

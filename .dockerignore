@@ -5,3 +5,5 @@ __pycache__
 .env
 .pytest_cache
 .venv312
+bruno-docs
+research
