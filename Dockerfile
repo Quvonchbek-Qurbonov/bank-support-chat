@@ -7,29 +7,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# System dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgomp1 \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency list
 COPY requirements.txt .
 
-# Copy locally downloaded wheels
-COPY packages/ /tmp/packages/
+RUN python -m pip install -r requirements.txt
 
-# Install ONLY from local wheels
-RUN python -m pip install \
-    --no-index \
-    --find-links=/tmp/packages \
-    -r requirements.txt \
-    && rm -rf /tmp/ Copy application
-
-COPY models/multilingual-e5-small/ /models/multilingual-e5-small/
+# Application
 COPY app/ ./app
-#
 
 EXPOSE 8000
 
