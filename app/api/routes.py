@@ -50,9 +50,12 @@ def chat(body: ChatRequest) -> ChatResponse:
         llm = LLMService()
         answer = llm.answer(body.question, context)
         sources = [
-            Source(title=x.get("title"), page_url=x["page_url"], score=float(x["score"]))
-            for x in context
-        ]
+            Source(
+                title=context[0].get("title"),
+                page_url=context[0]["page_url"],
+                score=float(context[0]["score"]),
+            )
+        ] if context else []
         return ChatResponse(answer=answer, sources=sources)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
