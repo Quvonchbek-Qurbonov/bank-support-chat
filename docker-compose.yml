@@ -7,12 +7,6 @@ services:
       - qdrant
     ports:
       - "${API_PORT:-8000}:8000"
-
-    runtime: nvidia
-    environment:
-      HF_HUB_OFFLINE: "1"
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
   worker:
@@ -21,16 +15,16 @@ services:
     depends_on:
       - postgres
       - qdrant
-
-    runtime: nvidia
-
-    environment:
-      HF_HUB_OFFLINE: "1"
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-
     command: python -m app.worker
 
+  frontend:
+    build:
+      context: ./frontend
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
 
   postgres:
     image: postgres:17-alpine
@@ -38,10 +32,9 @@ services:
       POSTGRES_DB: rag
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: rag
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -49,6 +42,7 @@ services:
       - qdrant_data:/qdrant/storage
     ports:
       - "6333:6333"
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b7a55" />
+  <meta name="description" content="Agrobank AI customer support assistant" />
+  <title>Agrobank AI Support</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <section class="chat-card" aria-label="Agrobank AI support chat">
+      <header class="chat-header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <div>
+            <h1>Agrobank AI</h1>
+            <div class="status-row">
+              <span id="status-dot" class="status-dot"></span>
+              <span id="status-text">Connecting...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <label class="language-control">
+            <span class="sr-only">Response language</span>
+            <select id="language-select" aria-label="Response language">
+              <option value="uz">O‘zbekcha</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <button id="clear-chat" class="icon-button" type="button" title="Clear conversation" aria-label="Clear conversation">
+            <span aria-hidden="true">↺</span>
+          </button>
+        </div>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite">
+        <div id="welcome-view" class="welcome-view">
+          <div class="welcome-icon" aria-hidden="true">✦</div>
+          <h2>How can I help you today?</h2>
+          <p>
+            Ask about Agrobank cards, tariffs, transfers, services, requirements,
+            and other information available on the bank’s public website.
+          </p>
+
+          <div class="prompt-grid">
+            <button class="prompt-card" type="button" data-prompt="Humo kartani chiqarish narxi qancha?">
+              <span class="prompt-icon">💳</span>
+              <span>Humo card fees</span>
+            </button>
+            <button class="prompt-card" type="button" data-prompt="Agrobank biznes tariflari qanday?">
+              <span class="prompt-icon">📊</span>
+              <span>Business tariffs</span>
+            </button>
+            <button class="prompt-card" type="button" data-prompt="What cards can Agrobank customers use?">
+              <span class="prompt-icon">🏦</span>
+              <span>Available cards</span>
+            </button>
+            <button class="prompt-card" type="button" data-prompt="Какие комиссии есть у Agrobank?">
+              <span class="prompt-icon">ℹ️</span>
+              <span>Service fees</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <form id="chat-form" class="composer">
+        <div class="composer-box">
+          <textarea
+            id="question"
+            rows="1"
+            maxlength="2000"
+            autocomplete="off"
+            placeholder="Ask Agrobank AI anything..."
+            aria-label="Message"
+          ></textarea>
+          <button id="send-button" class="send-button" type="submit" aria-label="Send message">
+            <span id="send-icon" aria-hidden="true">↑</span>
+          </button>
+        </div>
+        <div class="composer-footer">
+          <span>AI-generated answers may be incomplete. Verify important financial details with Agrobank.</span>
+          <span id="character-count">0 / 2000</span>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
