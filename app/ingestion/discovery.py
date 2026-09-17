@@ -87,13 +87,12 @@ class ReferenceExtractor:
 
 def menu_page_codes(menu: dict[str, Any], language: str) -> set[str]:
     """Turn the nested menu tree into route codes.
-
     directLink entries already contain a full site path (e.g. person/cards).
     Other entries are relative to their parent menu node.
     """
     found: set[str] = set()
 
-    language_menu = menu.get(language, {})
+    language_menu = menu.get(language, {})  #seperates every language
     for root_name in ("main", "footer", "send-appeal"):
         for item in language_menu.get(root_name, []) or []:
             _walk_menu_item(item, language, "", found)

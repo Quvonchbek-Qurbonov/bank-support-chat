@@ -5,18 +5,17 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
-from app.core.config import get_settings
+from app.core.config import settings
 
 
 class VectorStore:
     def __init__(self) -> None:
-        settings = get_settings()
         self.client = QdrantClient(url=settings.qdrant_url)
         self.collection = settings.qdrant_collection
         self.dim = settings.embedding_dim
         self.ensure_collection()
 
-    def ensure_collection(self) -> None:
+    def ensure_collection(self) -> None: #function to create collection to store information
         collections = {c.name for c in self.client.get_collections().collections}
         if self.collection not in collections:
             self.client.create_collection(
@@ -109,8 +108,7 @@ class FilterSelector:
         )
 
 
-def _stable_point_id(resource_id: int, chunk_index: int) -> int:
-    # Deterministic integer for Qdrant without storing UUID mapping.
+def _stable_point_id(resource_id: int, chunk_index: int) -> int:  # this function updating easier without removing the old data
     return resource_id * 1_000_000 + chunk_index
 
 

@@ -6,14 +6,16 @@ from app.rag.embeddings import get_embedding_service
 from fastapi import FastAPI
 from app.db import init_db
 from app.api.routes import router
+from app.rag.vector_store import get_vector_store
 
 logger = logging.getLogger("agrobank.api")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-
     get_embedding_service()
+    get_vector_store()
+
 
     yield
 

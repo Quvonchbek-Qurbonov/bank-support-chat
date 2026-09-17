@@ -65,15 +65,13 @@ class SyncService:
 
         menu = await self.client.get_menu()  #gets menu.json
 
-        queue: deque[tuple[str, str | None]] = deque()
+        queue: deque[tuple[str, str | None]] = deque() #double ended queue
         queued: set[str] = set()
 
         for language in settings.languages:
-            for code in menu_page_codes(
-                menu,
-                language,
-            ):
+            for code in menu_page_codes(menu, language):
                 queue.append((code, None))
+                logger.info(f"Queued page | language=%s | code=%s", language, code)
                 queued.add(code)
 
         visited: set[str] = set()
@@ -100,14 +98,7 @@ class SyncService:
             if not batch:
                 continue
 
-            logger.info(
-                "Fetching batch | size=%s | progress=%s/%s",
-                len(batch),
-                len(visited),
-                stats["discovered"],
-            )
-
-            results = await asyncio.gather(
+            results = await asyncio.gather(  #this parts makes request to all pages in agrobank and collects responses
                 *[
                     self._fetch_page(
                         code,

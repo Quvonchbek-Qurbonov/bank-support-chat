@@ -40,7 +40,7 @@ class EmbeddingService:
     def embed_documents(
         self,
         texts: list[str],
-    ) -> list[list[float]]:
+    ) -> list[list[float]]: #for embedding the information of the web site
         if not texts:
             return []
 
@@ -69,7 +69,7 @@ class EmbeddingService:
     def embed_query(
         self,
         text: str,
-    ) -> list[float]:
+    ) -> list[float]:     #for embedding the user question
         vector = self.model.encode(
             [f"query: {text}"],
             batch_size=1,

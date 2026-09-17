@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     embedding_device: str = "cuda"
     embedding_batch_size: int = 64
-    embedding_model: str = "/models/multilingual-e5-small" #uses already downloaded e5 model in production change it to "intfloat/multilingual-e5-small"
+    embedding_model: str = "intfloat/multilingual-e5-small" #uses already downloaded e5 model in production change it to "intfloat/multilingual-e5-small"
     embedding_dim: int = 384
     chunk_size: int = 1200
     chunk_overlap: int = 150
