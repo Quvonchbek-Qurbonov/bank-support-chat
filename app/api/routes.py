@@ -1,27 +1,30 @@
 from fastapi import APIRouter, HTTPException
+from sqlalchemy import select
 
 from app.api.schemas.schemas import ChatResponse, ChatRequest, Source
 from app.db import SessionLocal, Resource
-from sqlalchemy import select
-
 from app.service.context import build_context
 from app.rag.llm import LLMService
-
 from app.service.language import LanguageDetectionError, detect_language
 
 router = APIRouter()
 
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
 
 @router.get("/resources")
 def resources(limit: int = 50) -> list[dict]:
     session = SessionLocal()
     try:
         rows = session.scalars(
-            select(Resource).order_by(Resource.id.desc()).limit(min(limit, 500))
+            select(Resource)
+            .order_by(Resource.id.desc())
+            .limit(min(limit, 500))
         ).all()
+
         return [
             {
                 "id": row.id,
@@ -43,7 +46,12 @@ def resources(limit: int = 50) -> list[dict]:
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
     try:
-        language = detect_language(body.question)
+        # Language detection is optional.
+        # If detection fails, continue with language=None.
+        try:
+            language = detect_language(body.question)
+        except LanguageDetectionError:
+            language = None
 
         context = build_context(
             body.question,
@@ -72,12 +80,15 @@ def chat(body: ChatRequest) -> ChatResponse:
                 page_url=context[0]["page_url"],
                 score=float(context[0]["score"]),
             )
-        ] if context else []
+        ]
 
         return ChatResponse(
             answer=answer,
             sources=sources,
         )
 
-    except Exception as e:
-        raise HTTPException(500, "Error occurred while responding to user question")
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
