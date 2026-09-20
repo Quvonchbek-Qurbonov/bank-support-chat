@@ -5,7 +5,6 @@ const input = document.getElementById("question");
 const sendButton = document.getElementById("send-button");
 const sendIcon = document.getElementById("send-icon");
 const characterCount = document.getElementById("character-count");
-const languageSelect = document.getElementById("language-select");
 const clearChatButton = document.getElementById("clear-chat");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
@@ -184,7 +183,6 @@ function setLoading(loading) {
   state.loading = loading;
   sendButton.disabled = loading || input.value.trim().length < 2;
   input.disabled = loading;
-  languageSelect.disabled = loading;
   sendIcon.textContent = loading ? "…" : "↑";
 }
 
@@ -205,8 +203,7 @@ async function sendQuestion(question) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        question: text,
-        language: languageSelect.value,
+        question: text
       }),
     });
 
