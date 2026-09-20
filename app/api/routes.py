@@ -7,6 +7,10 @@ from app.service.context import build_context
 from app.rag.llm import LLMService
 from app.service.language import LanguageDetectionError, detect_language
 
+import uuid
+
+from app.service.chat_history import append_turn, clear_session, get_history
+
 router = APIRouter()
 
 
@@ -15,39 +19,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/resources")
-def resources(limit: int = 50) -> list[dict]:
-    session = SessionLocal()
-    try:
-        rows = session.scalars(
-            select(Resource)
-            .order_by(Resource.id.desc())
-            .limit(min(limit, 500))
-        ).all()
-
-        return [
-            {
-                "id": row.id,
-                "code": row.code,
-                "language": row.language,
-                "title": row.title,
-                "page_url": row.page_url,
-                "source_updated_at": row.source_updated_at,
-                "is_active": row.is_active,
-                "last_seen_at": row.last_seen_at,
-                "last_processed_at": row.last_processed_at,
-            }
-            for row in rows
-        ]
-    finally:
-        session.close()
-
-
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
+    session_id = body.session_id or str(uuid.uuid4())
+
     try:
-        # Language detection is optional.
-        # If detection fails, continue with language=None.
         try:
             language = detect_language(body.question)
         except LanguageDetectionError:
@@ -65,14 +41,20 @@ def chat(body: ChatRequest) -> ChatResponse:
                     "in the current Agrobank website data."
                 ),
                 sources=[],
+                session_id=session_id,
             )
 
         llm = LLMService()
 
+        history = get_history(session_id)
+
         answer = llm.answer(
             body.question,
             context,
+            history=history,
         )
+
+        append_turn(session_id, body.question, answer)
 
         sources = [
             Source(
@@ -85,6 +67,7 @@ def chat(body: ChatRequest) -> ChatResponse:
         return ChatResponse(
             answer=answer,
             sources=sources,
+            session_id=session_id,
         )
 
     except RuntimeError as exc:
@@ -92,3 +75,9 @@ def chat(body: ChatRequest) -> ChatResponse:
             status_code=503,
             detail=str(exc),
         ) from exc
+
+
+@router.delete("/chat/session/{session_id}")
+def delete_chat_session(session_id: str) -> dict[str, str]:
+    clear_session(session_id)
+    return {"status": "cleared"}

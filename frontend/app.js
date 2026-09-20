@@ -8,6 +8,38 @@ const characterCount = document.getElementById("character-count");
 const clearChatButton = document.getElementById("clear-chat");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
+function generateUUID() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // fall through to manual generation
+    }
+  }
+
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0"));
+    return (
+      hex.slice(0, 4).join("") + "-" +
+      hex.slice(4, 6).join("") + "-" +
+      hex.slice(6, 8).join("") + "-" +
+      hex.slice(8, 10).join("") + "-" +
+      hex.slice(10, 16).join("")
+    );
+  }
+
+  // Last-resort fallback (not cryptographically strong, but functional).
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+let sessionId = generateUUID();
 
 const state = {
   loading: false,
@@ -203,7 +235,8 @@ async function sendQuestion(question) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        question: text
+        question: text,
+        session_id: sessionId,
       }),
     });
 
@@ -215,6 +248,7 @@ async function sendQuestion(question) {
     }
 
     removeTypingIndicator();
+    sessionId = payload.session_id || sessionId;
     addMessage("assistant", payload.answer || "I could not generate an answer.", payload.sources || []);
     setBackendStatus(true);
   } catch (error) {
@@ -229,7 +263,6 @@ async function sendQuestion(question) {
     input.focus();
   }
 }
-
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   sendQuestion(input.value);
@@ -256,6 +289,10 @@ document.querySelectorAll(".prompt-card").forEach((button) => {
 });
 
 clearChatButton.addEventListener("click", () => {
+  const oldSessionId = sessionId;
+  sessionId = generateUUID();
+  fetch(`/api/chat/session/${oldSessionId}`, { method: "DELETE" }).catch(() => {});
+
   document.querySelector(".message-list")?.remove();
 
   const empty = document.createElement("div");

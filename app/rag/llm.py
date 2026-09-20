@@ -25,7 +25,13 @@ class LLMService:
 
         self.model = settings.groq_model
 
-    def answer(self, question: str, context: list[dict]) -> str:
+    def answer(
+            self,
+            question: str,
+            context: list[dict],
+            history: list[dict] | None = None,
+    ) -> str:
+        print(history)
         context_text = "\n\n".join(
             (
                 f"SOURCE {i + 1}\n"
@@ -42,18 +48,13 @@ class LLMService:
             f"Question: {question}"
         )
 
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages.extend(history or [])
+        messages.append({"role": "user", "content": prompt})
+
         completion = self.client.chat.completions.create(
             model=self.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
+            messages=messages,
             temperature=0.2,
             max_completion_tokens=500,
             top_p=1,
