@@ -7,6 +7,8 @@ from sqlalchemy import select
 from app.service.context import build_context
 from app.rag.llm import LLMService
 
+from app.service.language import LanguageDetectionError, detect_language
+
 router = APIRouter()
 
 @router.get("/health")
@@ -41,14 +43,29 @@ def resources(limit: int = 50) -> list[dict]:
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
     try:
-        context = build_context(body.question, body.language)
+        language = detect_language(body.question)
+
+        context = build_context(
+            body.question,
+            language,
+        )
+
         if not context:
             return ChatResponse(
-                answer="I could not find enough relevant information in the current Agrobank website data.",
+                answer=(
+                    "I could not find enough relevant information "
+                    "in the current Agrobank website data."
+                ),
                 sources=[],
             )
+
         llm = LLMService()
-        answer = llm.answer(body.question, context)
+
+        answer = llm.answer(
+            body.question,
+            context,
+        )
+
         sources = [
             Source(
                 title=context[0].get("title"),
@@ -56,6 +73,11 @@ def chat(body: ChatRequest) -> ChatResponse:
                 score=float(context[0]["score"]),
             )
         ] if context else []
-        return ChatResponse(answer=answer, sources=sources)
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        return ChatResponse(
+            answer=answer,
+            sources=sources,
+        )
+
+    except Exception as e:
+        raise HTTPException(500, "Error occurred while responding to user question")
