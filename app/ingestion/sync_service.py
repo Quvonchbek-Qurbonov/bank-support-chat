@@ -18,8 +18,9 @@ from app.ingestion.discovery import (
     menu_page_codes,
 )
 from app.ingestion.normalizer import (
-    chunk_text,
-    extract_page_text,
+    chunk_sections,
+    extract_page_sections,
+    normalize_whitespace,
 )
 from app.rag.embeddings import EmbeddingService
 from app.rag.vector_store import VectorStore
@@ -208,18 +209,25 @@ class SyncService:
 
             payload = await self.client.get_page(code)
 
-            page_text, title = extract_page_text(
+            sections, title, header = extract_page_sections(
                 payload
+            )
+
+            page_text = normalize_whitespace(
+                "\n\n".join(
+                    ([header] if header else []) + sections
+                )
             )
 
             content_hash = hashlib.sha256(
                 page_text.encode("utf-8")
             ).hexdigest()
 
-            chunks = chunk_text(
-                page_text,
+            chunks = chunk_sections(
+                sections,
                 settings.chunk_size,
                 settings.chunk_overlap,
+                header=header,
             )
 
             children = self.extractor.extract_page_codes(

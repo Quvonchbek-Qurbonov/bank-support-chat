@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 class ChatRequest(BaseModel):
     question: str = Field(min_length=2)
-    language: str | None = None
+    session_id: str | None = Field(default=None, max_length=100)
 
 
 class Source(BaseModel):
@@ -15,3 +15,4 @@ class Source(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[Source]
+    session_id: str
