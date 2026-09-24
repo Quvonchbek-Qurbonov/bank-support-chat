@@ -29,6 +29,17 @@ class Resource(Base):
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(100), index=True)
+    role: Mapped[str] = mapped_column(String(20))  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
 
 engine = create_engine(get_settings().database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)

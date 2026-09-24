@@ -1,5 +1,4 @@
 const messages = document.getElementById("messages");
-const welcomeView = document.getElementById("welcome-view");
 const form = document.getElementById("chat-form");
 const input = document.getElementById("question");
 const sendButton = document.getElementById("send-button");
@@ -8,7 +7,12 @@ const characterCount = document.getElementById("character-count");
 const clearChatButton = document.getElementById("clear-chat");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
+
 function generateUUID() {
+  // crypto.randomUUID() requires a secure context (HTTPS or localhost) and
+  // throws in insecure contexts, which breaks this whole script if called
+  // directly at module scope. crypto.getRandomValues() has no such
+  // restriction, so build a UUIDv4 from it instead.
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     try {
       return crypto.randomUUID();
@@ -88,9 +92,7 @@ function scrollToBottom() {
 }
 
 function clearWelcome() {
-  if (welcomeView) {
-    welcomeView.remove();
-  }
+  document.getElementById("welcome-view")?.remove();
 }
 
 function addMessage(role, text, sources = []) {
@@ -263,6 +265,7 @@ async function sendQuestion(question) {
     input.focus();
   }
 }
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   sendQuestion(input.value);
@@ -289,11 +292,10 @@ document.querySelectorAll(".prompt-card").forEach((button) => {
 });
 
 clearChatButton.addEventListener("click", () => {
-  const oldSessionId = sessionId;
   sessionId = generateUUID();
-  fetch(`/api/chat/session/${oldSessionId}`, { method: "DELETE" }).catch(() => {});
 
   document.querySelector(".message-list")?.remove();
+  document.getElementById("welcome-view")?.remove();
 
   const empty = document.createElement("div");
   empty.id = "welcome-view";

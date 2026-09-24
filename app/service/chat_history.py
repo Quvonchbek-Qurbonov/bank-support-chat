@@ -1,64 +1,45 @@
 from __future__ import annotations
 
-import threading
-import time
-from collections import OrderedDict
+from sqlalchemy import select
 
-# In-memory only, by design: no auth, no persistence requirement, history
-# just needs to survive for the lifetime of one browser tab. A page reload
-# gets a brand new session_id from the frontend, so old entries here become
-# orphaned and are swept up by the caps below rather than explicitly deleted.
-#
-# Caveat: this only works because the api service runs a single uvicorn
-# worker/process (see docker-compose.yml: `uvicorn app.main:app`, no
-# --workers flag). If that ever changes, or the api service is scaled to
-# multiple replicas, this dict stops being shared across requests and you'd
-# need Redis or similar instead.
+from app.db import ChatMessage, SessionLocal
 
-MAX_SESSIONS = 1000                 # hard cap on concurrent sessions kept in memory
-MAX_TURNS_PER_SESSION = 6           # 6 messages = 3 user/assistant exchanges
-SESSION_TTL_SECONDS = 60 * 60       # idle sessions older than this are dropped
+# Persistent, append-only. No TTL, no purge, no deletion anywhere in this
+# module — every row written here stays in the database indefinitely.
+# session_id has no auth behind it; it's just a grouping key the frontend
+# mints fresh on every page reload, so a "new chat" is just a new
+# session_id, not a wipe of the old one's rows.
 
-_lock = threading.Lock()
-_sessions: "OrderedDict[str, dict]" = OrderedDict()
-
-
-def _evict_locked() -> None:
-    now = time.time()
-    stale_ids = [
-        sid for sid, session in _sessions.items()
-        if now - session["updated_at"] > SESSION_TTL_SECONDS
-    ]
-    for sid in stale_ids:
-        _sessions.pop(sid, None)
-
-    while len(_sessions) > MAX_SESSIONS:
-        _sessions.popitem(last=False)  # drop least-recently-used
+MAX_TURNS_PER_SESSION = 6  # messages fed back into the LLM as history (3 exchanges)
 
 
 def get_history(session_id: str) -> list[dict]:
-    """Return the stored [{"role": ..., "content": ...}, ...] turns, oldest first."""
-    with _lock:
-        session = _sessions.get(session_id)
-        if not session:
-            return []
-        _sessions.move_to_end(session_id)
-        return list(session["messages"])
+    """Most recent MAX_TURNS_PER_SESSION messages for this session, oldest first."""
+    session = SessionLocal()
+    try:
+        rows = session.scalars(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id,
+                   ChatMessage.role == "user",)
+            .order_by(ChatMessage.id.desc())
+            .limit(MAX_TURNS_PER_SESSION)
+        ).all()
+    finally:
+        session.close()
+
+    rows.reverse()
+    return [{"role": row.role, "content": row.content} for row in rows]
 
 
 def append_turn(session_id: str, question: str, answer: str) -> None:
-    with _lock:
-        session = _sessions.setdefault(
-            session_id, {"messages": [], "updated_at": time.time()}
+    session = SessionLocal()
+    try:
+        session.add_all(
+            [
+                ChatMessage(session_id=session_id, role="user", content=question),
+                ChatMessage(session_id=session_id, role="assistant", content=answer),
+            ]
         )
-        session["messages"].append({"role": "user", "content": question})
-        session["messages"].append({"role": "assistant", "content": answer})
-        session["messages"] = session["messages"][-MAX_TURNS_PER_SESSION:]
-        session["updated_at"] = time.time()
-        _sessions.move_to_end(session_id)
-        _evict_locked()
-
-
-def clear_session(session_id: str) -> None:
-    with _lock:
-        _sessions.pop(session_id, None)
+        session.commit()
+    finally:
+        session.close()

@@ -9,7 +9,7 @@ from app.service.language import LanguageDetectionError, detect_language
 
 import uuid
 
-from app.service.chat_history import append_turn, clear_session, get_history
+from app.service.chat_history import append_turn, get_history
 
 router = APIRouter()
 
@@ -34,16 +34,6 @@ def chat(body: ChatRequest) -> ChatResponse:
             language,
         )
 
-        if not context:
-            return ChatResponse(
-                answer=(
-                    "I could not find enough relevant information "
-                    "in the current Agrobank website data."
-                ),
-                sources=[],
-                session_id=session_id,
-            )
-
         llm = LLMService()
 
         history = get_history(session_id)
@@ -56,13 +46,17 @@ def chat(body: ChatRequest) -> ChatResponse:
 
         append_turn(session_id, body.question, answer)
 
-        sources = [
-            Source(
-                title=context[0].get("title"),
-                page_url=context[0]["page_url"],
-                score=float(context[0]["score"]),
-            )
-        ]
+        sources = (
+            [
+                Source(
+                    title=context[0].get("title"),
+                    page_url=context[0]["page_url"],
+                    score=float(context[0]["score"]),
+                )
+            ]
+            if context
+            else []
+        )
 
         return ChatResponse(
             answer=answer,
@@ -75,9 +69,3 @@ def chat(body: ChatRequest) -> ChatResponse:
             status_code=503,
             detail=str(exc),
         ) from exc
-
-
-@router.delete("/chat/session/{session_id}")
-def delete_chat_session(session_id: str) -> dict[str, str]:
-    clear_session(session_id)
-    return {"status": "cleared"}
