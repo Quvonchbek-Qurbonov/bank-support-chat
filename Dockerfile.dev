@@ -17,13 +17,22 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Dependency metadata
 COPY pyproject.toml uv.lock ./
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked
+# Local packages/wheels
+COPY packages/ /app/packages/
 
+# Install third-party dependencies only
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --locked \
+        --no-install-project \
+        --find-links /app/packages \
+        --no-index
+
+# Local embedding model
 COPY models/multilingual-e5-base/ /models/multilingual-e5-base/
 
+# Application source
 COPY app/ /app/app/
-
-COPY tests/ /app/tests/
