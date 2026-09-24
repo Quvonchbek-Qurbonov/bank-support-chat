@@ -8,4 +8,3 @@ __pycache__/
 *.pyc
 models
 .venv312
-/research/
