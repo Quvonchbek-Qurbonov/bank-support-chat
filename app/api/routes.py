@@ -64,6 +64,13 @@ def chat(body: ChatRequest) -> ChatResponse:
             history=history,
         )
 
+        if not decision.in_scope:
+            return ChatResponse(
+                answer=decision.direct_answer,
+                sources=[],
+                session_id=session_id,
+                )
+
         # The question is unclear -> ask a clarification question.
         if not decision.question_clear:
             answer = decision.follow_up_question

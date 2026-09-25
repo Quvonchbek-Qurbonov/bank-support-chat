@@ -545,3 +545,15 @@ textarea::placeholder {
     transition: none !important;
   }
 }
+
+.citation-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  font-weight: 600;
+}
+
+.citation-link:hover {
+  opacity: 0.75;
+}

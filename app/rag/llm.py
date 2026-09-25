@@ -11,10 +11,33 @@ from app.service.llm_system_promts import FINAL_SYSTEM_PROMPT, ROUTER_SYSTEM_PRO
 
 class ChatDecision(BaseModel):
     question_clear: bool
+    in_scope: bool
     retrieve_information: bool
     follow_up_question: str
     search_query: str
     direct_answer: str
+
+
+CHAT_DECISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "question_clear": {"type": "boolean"},
+        "in_scope": {"type": "boolean"},
+        "retrieve_information": {"type": "boolean"},
+        "follow_up_question": {"type": "string"},
+        "search_query": {"type": "string"},
+        "direct_answer": {"type": "string"},
+    },
+    "required": [
+        "question_clear",
+        "in_scope",
+        "retrieve_information",
+        "follow_up_question",
+        "search_query",
+        "direct_answer",
+    ],
+    "additionalProperties": False,
+}
 
 
 class LLMService:
@@ -57,19 +80,26 @@ class LLMService:
             model=self.router_model,
             messages=messages,
             temperature=0,
-            max_completion_tokens=300,
+            max_completion_tokens=2048,
             reasoning_effort="low",
             reasoning_format="hidden",
             response_format={
-                "type": "json_object"
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "chat_decision",
+                    "strict": True,
+                    "schema": CHAT_DECISION_SCHEMA,
+                },
             },
         )
 
-        content = completion.choices[0].message.content
+        message = completion.choices[0].message
+        content = (message.content or "").strip()
 
         if not content:
             raise RuntimeError(
-                "Router LLM returned an empty response."
+                f"Final LLM returned an empty response. "
+                f"finish_reason={completion.choices[0].finish_reason}"
             )
 
         try:
@@ -182,9 +212,10 @@ class LLMService:
 
         completion = self.final_client.chat.completions.create(
             model=self.final_model,
+            reasoning_effort="medium",
             messages=messages,
             temperature=0.2,
-            max_completion_tokens=500,
+            max_completion_tokens=2048,
         )
 
         answer = completion.choices[0].message.content
