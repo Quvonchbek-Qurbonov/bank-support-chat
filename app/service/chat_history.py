@@ -4,13 +4,8 @@ from sqlalchemy import select
 
 from app.db import ChatMessage, SessionLocal
 
-# Persistent, append-only. No TTL, no purge, no deletion anywhere in this
-# module — every row written here stays in the database indefinitely.
-# session_id has no auth behind it; it's just a grouping key the frontend
-# mints fresh on every page reload, so a "new chat" is just a new
-# session_id, not a wipe of the old one's rows.
 
-MAX_TURNS_PER_SESSION = 6  # messages fed back into the LLM as history (3 exchanges)
+MAX_TURNS_PER_SESSION = 6
 
 
 def get_history(session_id: str) -> list[dict]:
@@ -19,8 +14,7 @@ def get_history(session_id: str) -> list[dict]:
     try:
         rows = session.scalars(
             select(ChatMessage)
-            .where(ChatMessage.session_id == session_id,
-                   ChatMessage.role == "user",)
+            .where(ChatMessage.session_id == session_id)
             .order_by(ChatMessage.id.desc())
             .limit(MAX_TURNS_PER_SESSION)
         ).all()

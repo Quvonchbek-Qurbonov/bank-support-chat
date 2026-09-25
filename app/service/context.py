@@ -2,7 +2,7 @@ from app.rag.embeddings import get_embedding_service
 from app.rag.vector_store import get_vector_store
 from app.core.config import settings
 
-def build_context(question: str, language: str | None):
+def build_context(question: str, language: str | None = None):
     embedder = get_embedding_service()
     vector_store = get_vector_store()
 

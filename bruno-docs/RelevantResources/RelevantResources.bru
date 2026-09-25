@@ -1,0 +1,15 @@
+meta {
+  name: Get Relevant Resources
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/relevants?question=
+  body: json
+  auth: none
+}
+
+params:query {
+  question: 
+}

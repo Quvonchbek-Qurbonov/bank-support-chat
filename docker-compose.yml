@@ -11,6 +11,8 @@ services:
     depends_on:
       - postgres
       - qdrant
+    volumes:
+      - ./models/multilingual-e5-base:/models/multilingual-e5-base:ro
     restart: unless-stopped
 
   worker:
@@ -23,6 +25,8 @@ services:
     depends_on:
       - postgres
       - qdrant
+    volumes:
+      - ./models/multilingual-e5-base:/models/multilingual-e5-base:ro
     restart: unless-stopped
 
   frontend:

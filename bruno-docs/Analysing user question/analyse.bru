@@ -1,0 +1,14 @@
+meta {
+  name: Debug Request Analyzer
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/debug/analyze
+  auth: none
+}
+
+params:query {
+  question: How much does a Humo card cost?
+}

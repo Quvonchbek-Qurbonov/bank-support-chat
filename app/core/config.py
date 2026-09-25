@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     top_k: int = 6
     min_retrieval_score: float = 0.30
 
-    groq_api_key: str = ""
-    groq_model: str = "openai/gpt-oss-20b"
+    groq_router_api_key: str = ""
+    groq_router_model: str = "openai/gpt-oss-20b"
+
+    groq_final_api_key: str = ""
+    groq_final_model: str = "openai/gpt-oss-20b"
 
     sync_http_concurrency: int = 8
 

@@ -17,6 +17,4 @@ COPY requirements.txt ./
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -r requirements.txt
 
-COPY models/multilingual-e5-base/ /models/multilingual-e5-base/
-
 COPY app/ /app/app/
