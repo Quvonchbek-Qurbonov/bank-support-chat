@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from typing import List, Annotated
+
+from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
-from app.api.schemas.schemas import ChatResponse, ChatRequest, Source
-from app.db import SessionLocal, Resource
+from app.api.schemas.schemas import ChatResponse, ChatRequest, Source, ResourceRequest, RelevantResource
 from app.service.context import build_context
 from app.rag.llm import LLMService
 from app.service.language import LanguageDetectionError, detect_language
@@ -17,6 +18,36 @@ router = APIRouter()
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@router.get("/relevants")
+def get_relevant_resources(payload: Annotated[ResourceRequest, Query()]) -> List[RelevantResource]:
+    try:
+        try:
+            language = detect_language(payload.question)
+        except LanguageDetectionError:
+            language = None
+
+        context = build_context(
+            payload.question,
+            language,
+        )
+
+        return [
+            RelevantResource(
+                title=hit.get("title"),
+                page_url=hit["page_url"],
+                score=float(hit["score"]),
+                content=hit["text"],
+            )
+            for hit in context
+        ]
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post("/chat", response_model=ChatResponse)

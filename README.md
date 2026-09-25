@@ -364,7 +364,7 @@ The default Docker Compose configuration starts:
 |---|---|---|
 | `frontend` | Web chat UI | `8080` |
 | `api` | FastAPI backend | `8000` |
-| `postgres` | Resource metadata and raw content | internal |
+| `postgres` | RelevantResource metadata and raw content | internal |
 | `qdrant` | Vector storage and similarity search | `6333` |
 
 Open the chatbot in your browser:
