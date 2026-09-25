@@ -74,7 +74,7 @@ function setBackendStatus(ok) {
 
 async function checkBackend() {
   try {
-    const response = await fetch("/api/health", { cache: "no-store" });
+    const response = await fetch("health", { cache: "no-store" });
     setBackendStatus(response.ok);
   } catch {
     setBackendStatus(false);
@@ -231,7 +231,7 @@ async function sendQuestion(question) {
   addTypingIndicator();
 
   try {
-    const response = await fetch("/api/chat", {
+    const response = await fetch("chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
