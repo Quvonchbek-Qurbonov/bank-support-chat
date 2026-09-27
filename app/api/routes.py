@@ -1,9 +1,10 @@
 from typing import List, Annotated
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from groq import RateLimitError
 
-from app.api.schemas.schemas import ChatResponse, ChatRequest, Source, ResourceRequest, RelevantResource
+from app.api.schemas.schemas import AnswerPart, ChatResponse, ChatRequest, Source, ResourceRequest, RelevantResource
 from app.service.context import build_context
 from app.rag.llm import LLMService, ChatDecision
 from app.service.language import LanguageDetectionError, detect_language
@@ -15,40 +16,53 @@ from app.service.chat_history import append_turn, get_history
 router = APIRouter()
 
 
+def format_answer_with_links(parts: list[AnswerPart], sources: list[Source]) -> str:
+    """Keep the legacy answer field readable and cited without exposing source IDs."""
+    lines: list[str] = []
+    step_number = 0
+    previous_kind = ""
+
+    for part in parts:
+        if part.kind != "step":
+            step_number = 0
+
+        if part.kind == "heading":
+            line = f"### {part.text}"
+        elif part.kind == "bullet":
+            line = f"- {part.text}"
+        elif part.kind == "step":
+            step_number += 1
+            line = f"{step_number}. {part.text}"
+        else:
+            line = part.text
+
+        link = ""
+        for source_id in part.source_ids:
+            if not 1 <= source_id <= len(sources):
+                continue
+            url = sources[source_id - 1].page_url
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or not parsed.hostname or (
+                parsed.hostname != "agrobank.uz"
+                and not parsed.hostname.endswith(".agrobank.uz")
+            ):
+                continue
+            link = f"[↗]({url.replace('(', '%28').replace(')', '%29')})"
+            break
+
+        rendered_line = f"{line}\u2060{link}" if link else line
+        if part.kind in {"bullet", "step"} and part.kind == previous_kind:
+            lines[-1] += f"\n{rendered_line}"
+        else:
+            lines.append(rendered_line)
+        previous_kind = part.kind
+
+    return "\n\n".join(lines)
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@router.get("/relevants")
-def get_relevant_resources(payload: Annotated[ResourceRequest, Query()]) -> List[RelevantResource]:
-    try:
-        try:
-            language = detect_language(payload.question)
-        except LanguageDetectionError:
-            language = None
-        print(f"<<<<<<<<<<<<<<<<<{language}>>>>>>>>>>>>>>>>>>>>>>>>>>")
-        context = build_context(
-            payload.question,
-            language,
-        )
-
-        return [
-            RelevantResource(
-                title=hit.get("title"),
-                page_url=hit["page_url"],
-                score=float(hit["score"]),
-                content=hit["text"],
-            )
-            for hit in context
-        ]
-
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
-
 
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
@@ -107,51 +121,48 @@ def chat(body: ChatRequest) -> ChatResponse:
         # IMPORTANT: use the corrected search query, not the raw question.
         context = build_context(
             decision.search_query,
-            None,
+            decision.language,
         )
 
         # LLM call #2: generate the grounded final answer.
-        answer = llm.answer(
+        final_answer = llm.answer(
             question=body.question,
             search_query=decision.search_query,
+            language=decision.language,
             context=context,
             history=history,
         )
+        history_answer = "\n".join(part.text for part in final_answer.parts)
 
         append_turn(
             session_id,
             body.question,
-            answer,
+            history_answer,
         )
 
-        sources = (
-            [
-                Source(
-                    title=context[0].get("title"),
-                    page_url=context[0]["page_url"],
-                    score=float(context[0]["score"]),
-                )
-            ]
-            if context
-            else []
-        )
+        sources = [
+            Source(
+                title=item.get("title"),
+                page_url=item["page_url"],
+                score=float(item["score"]),
+            )
+            for item in context
+        ]
 
         return ChatResponse(
-            answer=answer,
+            answer=format_answer_with_links(final_answer.parts, sources),
             sources=sources,
             session_id=session_id,
+            parts=final_answer.parts,
         )
 
+    except RateLimitError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="The AI service is temporarily rate-limited. Please try again later.",
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
             detail=str(exc),
         ) from exc
-
-@router.get("/debug/analyze", response_model=ChatDecision)
-def debug_analyze(
-        question: str = Query(..., min_length=2, max_length=500),
-) -> ChatDecision:
-    llm = LLMService()
-
-    return llm.analyze(question)

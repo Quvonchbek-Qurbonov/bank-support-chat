@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 from groq import Groq
 from pydantic import BaseModel, ValidationError
 
+from app.api.schemas.schemas import AnswerPart
 from app.core.config import settings
 from app.service.llm_system_promts import FINAL_SYSTEM_PROMPT, ROUTER_SYSTEM_PROMPT
 
@@ -13,6 +18,7 @@ class ChatDecision(BaseModel):
     question_clear: bool
     in_scope: bool
     retrieve_information: bool
+    language: Literal["uz", "ru", "en"]
     follow_up_question: str
     search_query: str
     direct_answer: str
@@ -24,6 +30,7 @@ CHAT_DECISION_SCHEMA = {
         "question_clear": {"type": "boolean"},
         "in_scope": {"type": "boolean"},
         "retrieve_information": {"type": "boolean"},
+        "language": {"type": "string", "enum": ["uz", "ru", "en"]},
         "follow_up_question": {"type": "string"},
         "search_query": {"type": "string"},
         "direct_answer": {"type": "string"},
@@ -32,10 +39,40 @@ CHAT_DECISION_SCHEMA = {
         "question_clear",
         "in_scope",
         "retrieve_information",
+        "language",
         "follow_up_question",
         "search_query",
         "direct_answer",
     ],
+    "additionalProperties": False,
+}
+
+
+class FinalAnswer(BaseModel):
+    parts: list[AnswerPart]
+
+
+FINAL_ANSWER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "parts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["heading", "paragraph", "bullet", "step", "notice"],
+                    },
+                    "text": {"type": "string"},
+                    "source_ids": {"type": "array", "items": {"type": "integer"}},
+                },
+                "required": ["kind", "text", "source_ids"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["parts"],
     "additionalProperties": False,
 }
 
@@ -167,9 +204,10 @@ class LLMService:
         self,
         question: str,
         search_query: str,
+        language: Literal["uz", "ru", "en"],
         context: list[dict],
         history: list[dict] | None = None,
-    ) -> str:
+    ) -> FinalAnswer:
         context_parts: list[str] = []
 
         for index, item in enumerate(context, start=1):
@@ -178,7 +216,6 @@ class LLMService:
                     [
                         f"Source {index}",
                         f"Title: {item.get('title') or ''}",
-                        f"URL: {item.get('page_url') or ''}",
                         f"Content: {item.get('text') or ''}",
                     ]
                 )
@@ -187,6 +224,9 @@ class LLMService:
         context_text = "\n\n".join(context_parts)
 
         user_content = (
+            f"Today's date in Uzbekistan: "
+            f"{datetime.now(ZoneInfo('Asia/Tashkent')).date().isoformat()}\n\n"
+            f"Response language: {language}\n\n"
             f"Original user question:\n{question}\n\n"
             f"Search query used:\n{search_query}\n\n"
             f"Retrieved Agrobank information:\n"
@@ -216,13 +256,59 @@ class LLMService:
             messages=messages,
             temperature=0.2,
             max_completion_tokens=2048,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "final_answer",
+                    "strict": True,
+                    "schema": FINAL_ANSWER_SCHEMA,
+                },
+            },
         )
 
-        answer = completion.choices[0].message.content
+        content = completion.choices[0].message.content
 
-        if not answer:
+        if not content:
             raise RuntimeError(
                 "Final LLM returned an empty response."
             )
 
-        return answer.strip()
+        try:
+            answer = FinalAnswer.model_validate_json(content)
+        except ValidationError as exc:
+            raise RuntimeError("Final LLM returned invalid answer JSON.") from exc
+
+        def validate_parts(result: FinalAnswer) -> None:
+            if not result.parts or not any(part.text.strip() for part in result.parts):
+                raise RuntimeError("Final LLM returned no answer text.")
+
+            for part in result.parts:
+                part.text = part.text.strip()
+                if not part.text:
+                    raise RuntimeError("Final LLM returned an empty answer part.")
+
+                if re.search(
+                    r"\[[^\]]+\]\([^)]+\)|</?[a-z][^>]*>|&#(?:x[0-9a-f]+|\d+);|https?://",
+                    part.text,
+                    flags=re.IGNORECASE,
+                ):
+                    raise RuntimeError("Final LLM returned markup instead of plain text.")
+
+                if any(source_id < 1 or source_id > len(context) for source_id in part.source_ids):
+                    raise RuntimeError("Final LLM cited a source outside the retrieved context.")
+
+                if len(part.source_ids) != len(set(part.source_ids)):
+                    raise RuntimeError("Final LLM returned duplicate source IDs.")
+
+                if part.kind == "heading" and part.source_ids:
+                    part.source_ids = []
+
+                if part.kind == "notice" and part.source_ids:
+                    part.kind = "paragraph"
+
+                if part.kind in {"paragraph", "bullet", "step"} and not part.source_ids:
+                    raise RuntimeError("A factual answer part is missing its source.")
+
+        validate_parts(answer)
+
+        return answer

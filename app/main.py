@@ -5,7 +5,8 @@ import logging
 from app.rag.embeddings import get_embedding_service
 from fastapi import FastAPI
 from app.db import init_db
-from app.api.routes import router
+from app.api.routes import router as main_router
+from app.api.debug_router import router as debug_router
 from app.rag.vector_store import get_vector_store
 
 logger = logging.getLogger("agrobank.api")
@@ -22,4 +23,5 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Agrobank RAG Backend", version="0.1.0", lifespan=lifespan)
 
 
-app.include_router(router)
+app.include_router(main_router)
+app.include_router(debug_router)

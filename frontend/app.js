@@ -76,6 +76,57 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function decodeHtmlEntities(value) {
+  const namedEntities = {
+    amp: "&",
+    nbsp: " ",
+    quot: '"',
+    apos: "'",
+    lt: "<",
+    gt: ">",
+  };
+
+  return String(value ?? "")
+    .replace(
+      /&#(?:x([0-9a-f]+)|(\d+));/gi,
+      (match, hexadecimal, decimal) => {
+        const codePoint = Number.parseInt(
+          hexadecimal || decimal,
+          hexadecimal ? 16 : 10
+        );
+
+        if (
+          !Number.isInteger(codePoint) ||
+          codePoint < 0 ||
+          codePoint > 0x10ffff ||
+          (codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ) {
+          return match;
+        }
+
+        return String.fromCodePoint(codePoint);
+      }
+    )
+    .replace(
+      /&(amp|nbsp|quot|apos|lt|gt);/gi,
+      (match, name) => namedEntities[name.toLowerCase()]
+    );
+}
+
+function findSourceIndexByUrl(sources, url) {
+  const normalizedUrl = String(url ?? "")
+    .trim()
+    .replace(/\/+$/, "");
+
+  return sources.findIndex(
+    (source) =>
+      typeof source?.page_url === "string" &&
+      source.page_url
+        .trim()
+        .replace(/\/+$/, "") === normalizedUrl
+  );
+}
+
 /* ==========================================================================
    MARKDOWN RENDERING
    ========================================================================== */
@@ -138,7 +189,9 @@ function renderAnswer(text, sources = []) {
       i + 1 < lines.length &&
       isTableSeparator(lines[i + 1])
     ) {
-      const headers = parseTableRow(line);
+      const headers = normalizeTableHeaders(
+        parseTableRow(line)
+      );
       const rows = [];
 
       i += 2;
@@ -326,7 +379,18 @@ function renderInlineMarkdown(
   text,
   sources = []
 ) {
-  let value = String(text ?? "");
+  let value = decodeHtmlEntities(text);
+
+  /*
+   * Flatten a malformed nested citation such as:
+   * [**\[Submit request**](https://...) ]\(source:15)
+   * into one ordinary trusted Markdown link.
+   */
+  value = value.replace(
+    /^\[\*\*(?:\\?\[)?(.+?)\*\*\]\(\s*(https?:\/\/[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)\s*\]\s*\\?\(source:\d+\)\s*([.!?]?)$/gi,
+    (match, label, url, punctuation) =>
+      `[**${label.trim()}**](${url})${punctuation}`
+  );
 
   /*
    * ------------------------------------------------------------
@@ -427,23 +491,122 @@ function renderInlineMarkdown(
   );
 
   value = value.replace(
-    /\[source:(\d+)\]/gi,
+    /[ \t\u00a0\u202f]*\[\s*source\s*:?\s*(\d+)\s*\]/gi,
     (match, number) => {
-      return `[Source ${number}](source:${number})`;
+      return `[](source:${number})`;
     }
   );
 
   /*
-   * Plain [1] / [2] citation markers:
+   * Plain [1] / [2] citation markers become icon-only links.
    *
-   * Do NOT display them.
-   *
-   * The model should not use this format, but this prevents
-   * ugly citation numbers from reaching the user.
+   * The source number is used to resolve the URL but is never displayed.
    */
   value = value.replace(
-    /\[(\d+)\]/g,
-    ""
+    /[ \t\u00a0\u202f]*\[\s*(\d+)\s*\]/g,
+    "[](source:$1)"
+  );
+
+  /*
+   * A model may add one or more separate [**Source N**](URL) links.
+   * Use the URL from the API's source list and show only an icon.
+   */
+  value = value.replace(
+    /[ \t\u00a0\u202f]*\[\s*(?:\*\*\s*)?source\s*:?\s*\d+\s*(?:\*\*)?\s*\]\(\s*(https?:\/\/[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/gi,
+    (match, url) => {
+      const sourceIndex = findSourceIndexByUrl(
+        sources,
+        url
+      );
+
+      return sourceIndex === -1
+        ? ""
+        : `[](source:${sourceIndex + 1})`;
+    }
+  );
+
+  // The API's compatibility answer uses a compact linked icon. Keep it
+  // as an icon when structured parts are unavailable in an older client.
+  value = value.replace(
+    /\[↗\]\(\s*(https?:\/\/[^\s)]+)\s*\)/g,
+    (match, url) => {
+      const sourceIndex = findSourceIndexByUrl(sources, url);
+      return sourceIndex === -1 ? "" : `[](source:${sourceIndex + 1})`;
+    }
+  );
+
+  /*
+   * Some models append a separate linked source quotation after the real
+   * answer. Attach that trusted URL to the answer itself and discard the
+   * repeated quotation.
+   *
+   * Example:
+   *   **Legal name:** Agrobank [**Agrobank**](https://... "Source")
+   * becomes:
+   *   [**Legal name:** Agrobank](source:1)
+   */
+  value = value.replace(
+    /^(.+?)\s+\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)\s*$/gi,
+    (match, answerText, citationText, url) => {
+      const sourceIndex = findSourceIndexByUrl(
+        sources,
+        url
+      );
+      const cleanAnswer = answerText.trim();
+
+      if (sourceIndex === -1) {
+        return cleanAnswer;
+      }
+
+      return `[${cleanAnswer}](source:${sourceIndex + 1})`;
+    }
+  );
+
+  /*
+   * Convert direct Markdown URLs to internal citations only when the URL
+   * exactly matches a source returned by the API. Untrusted URLs are
+   * reduced to their label instead of becoming clickable links.
+   *
+   * This also supports the optional Markdown link title emitted by some
+   * models: [label](https://example.com "Page title").
+   */
+  value = value.replace(
+    /\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/gi,
+    (match, label, url) => {
+      const sourceIndex = findSourceIndexByUrl(
+        sources,
+        url
+      );
+
+      if (sourceIndex === -1) {
+        return label;
+      }
+
+      return `[${label}](source:${sourceIndex + 1})`;
+    }
+  );
+
+  /*
+   * Models sometimes make the entire citation label bold and also put
+   * escaped <strong> tags inside it. Remove the redundant outer bold
+   * markers, then convert the intended inner emphasis to Markdown.
+   */
+  value = value.replace(
+    /\[\*\*(.*?)\*\*\]\((source:\d+|https?:\/\/[^)\n]+)\)/gi,
+    (match, label, destination) =>
+      `[${label}](${destination})`
+  );
+
+  value = value.replace(
+    /\\?<\/?strong>/gi,
+    "**"
+  );
+
+  // Keep final punctuation before a run of source icons.
+  value = value.replace(
+    /^(.*?)(\s*(?:\[\]\(source:\d+\)\s*)+)([.!?])\s*$/,
+    (match, answer, citations, punctuation) =>
+      `${answer.trimEnd()}${punctuation}${citations.trimEnd()}`
   );
 
   /*
@@ -479,8 +642,8 @@ function renderInlineMarkdown(
    * -> sources[0].page_url
    */
   safe = safe.replace(
-    /\[([^\]]+)\]\(source:(\d+)\)/g,
-    (match, label, sourceNumber) => {
+    /\[([^\]]*)\]\(source:(\d+)\)(\s*[.,!?;:])?(?=\s|\[|$)/g,
+    (match, label, sourceNumber, trailingPunctuation = "") => {
       const index =
         Number(sourceNumber) - 1;
 
@@ -492,7 +655,7 @@ function renderInlineMarkdown(
         typeof source.page_url !== "string" ||
         !source.page_url.trim()
       ) {
-        return escapeHtml(label);
+        return `${label}${trailingPunctuation}`;
       }
 
       const title = escapeHtml(
@@ -505,16 +668,9 @@ function renderInlineMarkdown(
         source.page_url
       );
 
-      return `
-        <a
-          class="citation-link"
-          href="${url}"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="${title}"
-          aria-label="${title}"
-        >${escapeHtml(label)}</a>
-      `;
+      const punctuation = trailingPunctuation.trim();
+
+      return `${label}${punctuation}<a class="citation-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${title}" aria-label="Open source: ${title}"><span aria-hidden="true">↗</span></a>`;
     }
   );
 
@@ -577,6 +733,27 @@ function parseTableRow(line) {
   return value
     .split("|")
     .map((cell) => cell.trim());
+}
+
+function normalizeTableHeaders(headers) {
+  // Recover the four-column card table when the model joins all headings
+  // into its first cell and leaves the other header cells empty.
+  if (
+    headers.length === 4 &&
+    headers.slice(1).every((header) => !header) &&
+    /^Card type\s*How to obtain\s*Cost of issuance\s*Main notes$/i.test(
+      headers[0]
+    )
+  ) {
+    return [
+      "Card type",
+      "How to obtain",
+      "Cost of issuance",
+      "Main notes",
+    ];
+  }
+
+  return headers;
 }
 
 function renderTable(
@@ -750,10 +927,102 @@ function clearWelcome() {
    MESSAGES
    ========================================================================== */
 
+function renderStructuredAnswer(parts, sources) {
+  const container = document.createElement("div");
+  container.className = "structured-answer";
+  let currentList = null;
+
+  for (const part of parts) {
+    if (!part || typeof part.text !== "string") {
+      continue;
+    }
+
+    const kind = part.kind;
+    const isListItem = kind === "bullet" || kind === "step";
+    const listTag = kind === "step" ? "ol" : "ul";
+    let element;
+
+    if (isListItem) {
+      if (!currentList || currentList.tagName.toLowerCase() !== listTag) {
+        currentList = document.createElement(listTag);
+        container.appendChild(currentList);
+      }
+      element = document.createElement("li");
+      currentList.appendChild(element);
+    } else {
+      currentList = null;
+      element = document.createElement(kind === "heading" ? "h3" : "p");
+      if (kind === "notice") {
+        element.className = "answer-notice";
+      }
+      container.appendChild(element);
+    }
+
+    element.textContent = part.text;
+
+    if (!Array.isArray(part.source_ids)) {
+      continue;
+    }
+
+    for (const sourceId of new Set(part.source_ids)) {
+      const source = Number.isInteger(sourceId)
+        ? sources[sourceId - 1]
+        : null;
+      if (!source || typeof source.page_url !== "string") {
+        continue;
+      }
+
+      let url;
+      try {
+        url = new URL(source.page_url);
+      } catch {
+        continue;
+      }
+
+      if (
+        url.protocol !== "https:" ||
+        (url.hostname !== "agrobank.uz" &&
+          !url.hostname.endsWith(".agrobank.uz"))
+      ) {
+        continue;
+      }
+
+      const link = document.createElement("a");
+      link.className = "citation-link";
+      link.href = url.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.title = source.title || "Agrobank source";
+      link.setAttribute("aria-label", `Open source: ${link.title}`);
+
+      const icon = document.createElement("span");
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = "↗";
+      link.appendChild(icon);
+
+      const lastWord = part.text.match(/\S+$/u);
+      if (lastWord && lastWord.index > 0) {
+        element.textContent = part.text.slice(0, lastWord.index);
+        const tail = document.createElement("span");
+        tail.className = "citation-tail";
+        tail.textContent = lastWord[0];
+        tail.appendChild(link);
+        element.appendChild(tail);
+      } else {
+        element.appendChild(link);
+      }
+      break;
+    }
+  }
+
+  return container;
+}
+
 function addMessage(
   role,
   text,
-  sources = []
+  sources = [],
+  parts = null
 ) {
   clearWelcome();
 
@@ -807,11 +1076,11 @@ function addMessage(
     "message-bubble";
 
   if (role === "assistant") {
-    bubble.innerHTML =
-      renderAnswer(
-        text,
-        sources
-      );
+    if (Array.isArray(parts) && parts.length > 0) {
+      bubble.appendChild(renderStructuredAnswer(parts, sources));
+    } else {
+      bubble.innerHTML = renderAnswer(text, sources);
+    }
   } else {
     bubble.textContent =
       text;
@@ -1029,7 +1298,8 @@ async function sendQuestion(question) {
       addMessage(
         "assistant",
         answer,
-        sources
+        sources,
+        payload.parts
       );
     }
 
