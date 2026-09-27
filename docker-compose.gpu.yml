@@ -5,13 +5,19 @@ services:
       dockerfile: Dockerfile.${APP_ENV}
     env_file:
       - .env
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      HF_HOME: /models/cache/huggingface
+      FASTEMBED_CACHE_PATH: /models/cache/fastembed
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-access-log
     gpus: all
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       - postgres
       - qdrant
+    volumes:
+      - ./models/multilingual-e5-base:/models/multilingual-e5-base:ro
+      - model_cache:/models/cache
     restart: unless-stopped
 
   worker:
@@ -20,11 +26,17 @@ services:
       dockerfile: Dockerfile.${APP_ENV}
     env_file:
       - .env
+    environment:
+      HF_HOME: /models/cache/huggingface
+      FASTEMBED_CACHE_PATH: /models/cache/fastembed
     command: python -m app.worker
     gpus: all
     depends_on:
       - postgres
       - qdrant
+    volumes:
+      - ./models/multilingual-e5-base:/models/multilingual-e5-base:ro
+      - model_cache:/models/cache
     restart: unless-stopped
 
   frontend:
@@ -59,3 +71,4 @@ services:
 volumes:
   postgres_data:
   qdrant_data:
+  model_cache:

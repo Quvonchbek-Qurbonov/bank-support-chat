@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -6,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_env: str = "dev"
     api_port: int = 8000
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     bank_base_url: str = "https://agrobank.uz"
     bank_menu_url: str = "https://agrobank.uz/api/v1/menu.json"
@@ -23,8 +25,12 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
     chunk_size: int = 1200
     chunk_overlap: int = 150
-    top_k: int = 6
+    top_k: int = 6  # legacy setting; retained for existing deployments
+    retrieval_candidate_k: int = 20
+    context_top_k: int = 6
     min_retrieval_score: float = 0.30
+    reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    reranker_batch_size: int = 8
 
     groq_router_api_key: str = ""
     groq_router_model: str = "openai/gpt-oss-20b"

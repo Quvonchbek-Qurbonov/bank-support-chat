@@ -8,6 +8,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -27,6 +28,22 @@ from app.rag.vector_store import VectorStore
 
 
 logger = logging.getLogger("agrobank.sync")
+
+
+def _log_fetch_failure(code: str, error: Exception) -> None:
+    status = error.response.status_code if isinstance(error, httpx.HTTPStatusError) else None
+    level = (
+        logging.DEBUG if status == 404
+        else logging.WARNING if status is not None and status < 500
+        else logging.ERROR
+    )
+    logger.log(
+        level,
+        "sync.page_fetch_failed code=%r status=%s error_type=%s",
+        code,
+        status or "-",
+        type(error).__name__,
+    )
 
 
 class SyncService:
@@ -50,6 +67,10 @@ class SyncService:
     async def _sync_async(self) -> dict[str, Any]:
         started = time.monotonic()
 
+        backfilled = self.vector_store.backfill_sparse_vectors()
+        if backfilled:
+            logger.info("sparse_backfill.completed updated_chunks=%s", backfilled)
+
         stats: dict[str, Any] = {
             "discovered": 0,
             "fetched": 0,
@@ -62,7 +83,7 @@ class SyncService:
             "deactivated": 0,
         }
 
-        logger.info("Starting Agrobank synchronization")
+        logger.debug("sync.discovery_started")
 
         menu = await self.client.get_menu()  #gets menu.json
 
@@ -72,15 +93,15 @@ class SyncService:
         for language in settings.languages:
             for code in menu_page_codes(menu, language):
                 queue.append((code, None))
-                logger.info(f"Queued page | language=%s | code=%s", language, code)
+                logger.debug("sync.page_queued language=%s code=%s", language, code)
                 queued.add(code)
 
         visited: set[str] = set()
 
         stats["discovered"] = len(queue)
 
-        logger.info(
-            "Initial pages discovered=%s",
+        logger.debug(
+            "sync.initial_pages discovered=%s",
             len(queue),
         )
 
@@ -119,13 +140,7 @@ class SyncService:
             ):
                 if isinstance(result, Exception):
                     stats["failed"] += 1
-
-                    logger.error(
-                        "Failed fetching page | code=%s | error=%r",
-                        code,
-                        result,
-                    )
-
+                    _log_fetch_failure(code, result)
                     continue
 
                 stats["fetched"] += 1
@@ -156,8 +171,8 @@ class SyncService:
                 if status in {"new", "updated"}:
                     changed_pages.append(result)
 
-                logger.info(
-                    "Page processed | status=%s | code=%s",
+                logger.debug(
+                    "sync.page_processed status=%s code=%s",
                     status,
                     code,
                 )
@@ -177,23 +192,6 @@ class SyncService:
         stats["duration_seconds"] = round(
             time.monotonic() - started,
             2,
-        )
-
-        logger.info(
-            "Sync finished | "
-            "discovered=%s fetched=%s new=%s updated=%s "
-            "unchanged=%s failed=%s embedded=%s chunks=%s "
-            "deactivated=%s duration=%.2fs",
-            stats["discovered"],
-            stats["fetched"],
-            stats["new"],
-            stats["updated"],
-            stats["unchanged"],
-            stats["failed"],
-            stats["embedded"],
-            stats["chunks"],
-            stats["deactivated"],
-            stats["duration_seconds"],
         )
 
         return stats
@@ -309,8 +307,8 @@ class SyncService:
 
         started = time.monotonic()
 
-        logger.info(
-            "Embedding changed pages=%s chunks=%s",
+        logger.debug(
+            "embedding.batch_started pages=%s chunks=%s",
             len(pages),
             len(all_chunks),
         )
@@ -319,8 +317,8 @@ class SyncService:
             all_chunks
         )
 
-        logger.info(
-            "Embedding finished | chunks=%s | duration=%.2fs",
+        logger.debug(
+            "embedding.batch_completed chunks=%s duration_s=%.2f",
             len(all_chunks),
             time.monotonic() - started,
         )

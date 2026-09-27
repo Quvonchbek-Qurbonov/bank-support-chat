@@ -5,26 +5,22 @@ import time
 import asyncio
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 from app.db import init_db
 from app.ingestion.sync_service import SyncService
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
 
 logger = logging.getLogger("agrobank.worker")
 
 
 async def main() -> None:
+    configure_logging()
     settings = get_settings()
 
     init_db()
 
     logger.info(
-        "Worker started | interval=%ss | "
-        "http_concurrency=%s | embedding_device=%s | "
+        "worker.started interval_s=%s http_concurrency=%s embedding_device=%s "
         "embedding_batch_size=%s",
         settings.sync_interval_seconds,
         settings.sync_http_concurrency,
@@ -41,25 +37,17 @@ async def main() -> None:
             sync_id += 1
             started = time.monotonic()
 
-            logger.info(
-                "===== SYNC #%s START =====",
-                sync_id,
-            )
+            logger.info("sync.started sync_id=%s", sync_id)
 
             try:
                 stats = await service.sync()
 
                 logger.info(
-                    "===== SYNC #%s FINISHED =====",
-                    sync_id,
-                )
-
-                logger.info(
-                    "Sync #%s | "
+                    "sync.completed sync_id=%s "
                     "discovered=%s fetched=%s new=%s "
                     "updated=%s unchanged=%s failed=%s "
                     "embedded=%s chunks=%s deactivated=%s "
-                    "duration=%.2fs",
+                    "duration_s=%.2f",
                     sync_id,
                     stats["discovered"],
                     stats["fetched"],
@@ -74,16 +62,12 @@ async def main() -> None:
                 )
 
             except Exception:
-                logger.exception(
-                    "SYNC #%s FAILED",
-                    sync_id,
-                )
+                logger.exception("sync.failed sync_id=%s", sync_id)
 
             elapsed = time.monotonic() - started
 
-            logger.info(
-                "Next sync in %ss | "
-                "current iteration took %.2fs",
+            logger.debug(
+                "sync.sleep interval_s=%s iteration_s=%.2f",
                 settings.sync_interval_seconds,
                 elapsed,
             )

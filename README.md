@@ -66,10 +66,10 @@ A typical request follows this flow:
 
 1. The user sends a question.
 2. The question is converted into an embedding using `intfloat/multilingual-e5-small`.
-3. Qdrant performs cosine-similarity search.
-4. The system retrieves up to `TOP_K` relevant chunks.
-5. Results below `MIN_RETRIEVAL_SCORE` are discarded.
-6. The retrieved chunks are assembled into the LLM context.
+3. Qdrant retrieves semantic (dense) and exact-term BM25 (sparse) candidates in the detected language.
+4. Qdrant combines the two ranked lists with reciprocal rank fusion (RRF).
+5. A local cross-encoder reranks the candidate chunks against the search query.
+6. The best `CONTEXT_TOP_K` chunks are assembled into the LLM context.
 7. Groq generates the final response.
 8. The API returns the answer and retrieved source metadata.
 
@@ -184,11 +184,17 @@ Embeddings are normalized and stored in Qdrant using cosine distance.
 Current retrieval defaults:
 
 ```text
-TOP_K=6
-MIN_RETRIEVAL_SCORE=0.30
+RETRIEVAL_CANDIDATE_K=20
+CONTEXT_TOP_K=6
+RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+RERANKER_BATCH_SIZE=8
 ```
 
-Language filtering can also be applied during Qdrant search when a language is supplied to the `/chat` endpoint.
+The router supplies a search query and language. Both Qdrant prefetches use that language filter. BM25 uses the same tokenizer at ingest and query time, with English stemming disabled so Uzbek and Russian terms are not stemmed as English. Qdrant's RRF score and the cross-encoder's score have different scales from cosine similarity, so the old `MIN_RETRIEVAL_SCORE` setting is no longer applied. `TOP_K` is retained as a legacy setting but does not set the final context size; use `CONTEXT_TOP_K` instead.
+
+The existing dense Qdrant collection is preserved. On startup, the new sparse vector name is added to it; at the start of each worker sync, missing BM25 vectors are backfilled from existing chunk payloads without recalculating dense embeddings. During backfill, dense retrieval still works. Qdrant must support adding sparse vector names to an existing collection (Qdrant 1.18+).
+
+The reranker and BM25 tokenizer assets download on first use unless already cached. The Docker Compose files persist those downloads in the `model_cache` volume. The default multilingual MiniLM reranker is substantially smaller than BGE v2-m3, but its Uzbek ranking quality needs to be checked against the Qdrant-only baseline. The cross-encoder runs on CUDA when available, otherwise CPU; benchmark latency on your hardware before production use. To change its model, set `RERANKER_MODEL` to a compatible model ID or local model path.
 
 ## LLM
 
@@ -305,8 +311,10 @@ EMBEDDING_MODEL=intfloat/multilingual-e5-small
 EMBEDDING_DIM=384
 CHUNK_SIZE=1200
 CHUNK_OVERLAP=150
-TOP_K=6
-MIN_RETRIEVAL_SCORE=0.30
+RETRIEVAL_CANDIDATE_K=20
+CONTEXT_TOP_K=6
+RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+RERANKER_BATCH_SIZE=8
 
 GROQ_API_KEY=your_groq_api_key
 GROQ_MODEL=openai/gpt-oss-20b
@@ -341,6 +349,16 @@ View API logs:
 ```bash
 docker compose logs -f api
 ```
+
+Application logs use UTC timestamps, a request ID, and a configurable `LOG_LEVEL`
+(`INFO` by default; use `DEBUG` for per-page worker details). For a retrieval
+request, look for `vector_search.completed`, `reranker.completed`, and
+`retrieval.completed`. The last line reports both chunk counts and distinct
+document counts before and after reranking, plus stage timings. The API also
+returns `X-Request-ID` so a response can be matched to its logs. Questions,
+answers, retrieved text, and API keys are not included in application logs.
+Compose also disables Uvicorn's access log so debug GET query strings are not
+printed separately.
 
 View synchronization logs:
 

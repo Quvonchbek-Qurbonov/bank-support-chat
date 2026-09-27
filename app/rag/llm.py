@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -12,6 +14,9 @@ from pydantic import BaseModel, ValidationError
 from app.api.schemas.schemas import AnswerPart
 from app.core.config import settings
 from app.service.llm_system_promts import FINAL_SYSTEM_PROMPT, ROUTER_SYSTEM_PROMPT
+
+
+logger = logging.getLogger("agrobank.llm")
 
 
 class ChatDecision(BaseModel):
@@ -96,6 +101,7 @@ class LLMService:
         question: str,
         history: list[dict] | None = None,
     ) -> ChatDecision:
+        started = time.monotonic()
         messages: list[dict] = [
             {
                 "role": "system",
@@ -155,6 +161,17 @@ class LLMService:
 
         self._validate_decision(decision)
 
+        logger.info(
+            "llm.router_completed model=%s language=%s in_scope=%s clear=%s "
+            "retrieval_needed=%s duration_ms=%.1f",
+            self.router_model,
+            decision.language,
+            decision.in_scope,
+            decision.question_clear,
+            decision.retrieve_information,
+            (time.monotonic() - started) * 1000,
+        )
+
         return decision
 
     @staticmethod
@@ -208,6 +225,7 @@ class LLMService:
         context: list[dict],
         history: list[dict] | None = None,
     ) -> FinalAnswer:
+        started = time.monotonic()
         context_parts: list[str] = []
 
         for index, item in enumerate(context, start=1):
@@ -310,5 +328,15 @@ class LLMService:
                     raise RuntimeError("A factual answer part is missing its source.")
 
         validate_parts(answer)
+
+        logger.info(
+            "llm.answer_completed model=%s language=%s context_chunks=%d answer_parts=%d "
+            "duration_ms=%.1f",
+            self.final_model,
+            language,
+            len(context),
+            len(answer.parts),
+            (time.monotonic() - started) * 1000,
+        )
 
         return answer

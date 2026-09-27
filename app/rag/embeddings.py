@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import torch
 from sentence_transformers import SentenceTransformer
@@ -17,17 +18,17 @@ class EmbeddingService:
         self.batch_size = settings.embedding_batch_size
         self.device = settings.embedding_device
 
-        if not torch.cuda.is_available():
+        if self.device == "cuda" and not torch.cuda.is_available():
             logger.warning(
                 "CUDA requested but unavailable. Falling back to CPU."
             )
             self.device = "cpu"
 
+        started = time.monotonic()
         logger.info(
-            "Loading embedding MODEL=%s DEVICE=%s GPU=%s",
+            "embedding.loading model=%s device=%s",
             settings.embedding_model,
             self.device,
-            torch.cuda.get_device_name(0) if self.device == "cuda" else "Your cpu",
         )
 
         self.model = SentenceTransformer(
@@ -35,7 +36,7 @@ class EmbeddingService:
             device=self.device,
         )
 
-        logger.info("Embedding model loaded")
+        logger.info("embedding.ready duration_ms=%.1f", (time.monotonic() - started) * 1000)
 
     def embed_documents(
         self,
@@ -49,8 +50,8 @@ class EmbeddingService:
             for text in texts
         ]
 
-        logger.info(
-            "Embedding %s chunks | device=%s | batch_size=%s",
+        logger.debug(
+            "embedding.documents_started chunks=%s device=%s batch_size=%s",
             len(prepared),
             self.device,
             self.batch_size,

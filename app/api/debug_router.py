@@ -1,26 +1,23 @@
-from typing import List, Annotated
+from typing import List, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.api.schemas.schemas import ResourceRequest, RelevantResource
+from app.api.schemas.schemas import RelevantResource
 from app.service.context import build_context
 from app.rag.llm import LLMService, ChatDecision
-from app.service.language import LanguageDetectionError, detect_language
 
 
 router = APIRouter()
 
 
 @router.get("/relevants")
-def get_relevant_resources(payload: Annotated[ResourceRequest, Query()]) -> List[RelevantResource]:
+def get_relevant_resources(
+    question: str = Query(..., min_length=2, max_length=200),
+    language: Literal["uz", "ru", "en"] | None = None,
+) -> List[RelevantResource]:
     try:
-        try:
-            language = detect_language(payload.question)
-        except LanguageDetectionError:
-            language = None
-        print(f"<<<<<<<<<<<<<<<<<{language}>>>>>>>>>>>>>>>>>>>>>>>>>>")
         context = build_context(
-            payload.question,
+            question,
             language,
         )
 

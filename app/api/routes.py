@@ -7,7 +7,6 @@ from groq import RateLimitError
 from app.api.schemas.schemas import AnswerPart, ChatResponse, ChatRequest, Source, ResourceRequest, RelevantResource
 from app.service.context import build_context
 from app.rag.llm import LLMService, ChatDecision
-from app.service.language import LanguageDetectionError, detect_language
 
 import uuid
 
