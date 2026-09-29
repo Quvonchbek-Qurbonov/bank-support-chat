@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from groq import Groq
+from groq import BadRequestError, Groq
 from pydantic import BaseModel, ValidationError
 
 from app.api.schemas.schemas import AnswerPart
@@ -85,6 +85,39 @@ FINAL_ANSWER_SCHEMA = {
 }
 
 
+def _complete_json(client: Groq, *, stage: str, schema: dict, **options):
+    """Retry one provider-side JSON validation failure with JSON Object Mode."""
+    try:
+        return client.chat.completions.create(
+            **options,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": stage, "strict": True, "schema": schema},
+            },
+        )
+    except BadRequestError as exc:
+        body = exc.body if isinstance(exc.body, dict) else {}
+        error = body.get("error", body)
+        if not isinstance(error, dict) or error.get("code") != "json_validate_failed":
+            raise
+
+        logger.warning("llm.json_validation_failed stage=%s model=%s fallback=json_object", stage, options["model"])
+        try:
+            return client.chat.completions.create(
+                **options,
+                response_format={"type": "json_object"},
+            )
+        except BadRequestError as retry_exc:
+            logger.warning(
+                "llm.json_fallback_failed stage=%s model=%s",
+                stage,
+                options["model"],
+            )
+            raise RuntimeError(
+                "The AI service could not produce a valid response. Please try again."
+            ) from retry_exc
+
+
 class LLMService:
     def __init__(self) -> None:
 
@@ -122,21 +155,16 @@ class LLMService:
             }
         )
 
-        completion = self.router_client.chat.completions.create(
+        completion = _complete_json(
+            self.router_client,
+            stage="chat_decision",
+            schema=CHAT_DECISION_SCHEMA,
             model=self.router_model,
             messages=messages,
             temperature=0,
             max_completion_tokens=2048,
             reasoning_effort="low",
             reasoning_format="hidden",
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "chat_decision",
-                    "strict": True,
-                    "schema": CHAT_DECISION_SCHEMA,
-                },
-            },
         )
 
         message = completion.choices[0].message
@@ -144,7 +172,7 @@ class LLMService:
 
         if not content:
             raise RuntimeError(
-                f"Final LLM returned an empty response. "
+                f"Router LLM returned an empty response. "
                 f"finish_reason={completion.choices[0].finish_reason}"
             )
 
@@ -152,14 +180,14 @@ class LLMService:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
             raise RuntimeError(
-                f"Router LLM returned invalid JSON: {content}"
+                "Router LLM returned invalid JSON. Please try again."
             ) from exc
 
         try:
             decision = ChatDecision.model_validate(data)
         except ValidationError as exc:
             raise RuntimeError(
-                f"Router LLM returned an invalid decision: {content}"
+                "Router LLM returned an invalid decision. Please try again."
             ) from exc
 
         self._validate_decision(decision)
@@ -280,20 +308,15 @@ class LLMService:
             }
         )
 
-        completion = self.final_client.chat.completions.create(
+        completion = _complete_json(
+            self.final_client,
+            stage="final_answer",
+            schema=FINAL_ANSWER_SCHEMA,
             model=self.final_model,
             reasoning_effort="medium",
             messages=messages,
             temperature=0.2,
             max_completion_tokens=2048,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "final_answer",
-                    "strict": True,
-                    "schema": FINAL_ANSWER_SCHEMA,
-                },
-            },
         )
 
         content = completion.choices[0].message.content

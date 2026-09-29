@@ -106,6 +106,25 @@ class ChatProgressTests(unittest.TestCase):
         self.assertEqual(events[-1]["detail"], "Rates unavailable")
         append.assert_not_called()
 
+    def test_final_answer_failure_sends_error_without_saving_history(self) -> None:
+        self.llm.analyze.return_value = decision(retrieve_information=True)
+        self.llm.answer.side_effect = RuntimeError(
+            "The AI service could not produce a valid response. Please try again."
+        )
+        with (
+            patch.object(routes, "LLMService", return_value=self.llm),
+            patch.object(routes, "get_history", return_value=[]),
+            patch.object(routes, "append_turn") as append,
+            patch.object(routes, "build_context", return_value=[self.source]),
+        ):
+            events = stream_events("Tell me about an Agrobank card")
+
+        self.assertEqual([event.get("phase", event["type"]) for event in events], [
+            "analyzing", "retrieving", "generating", "error",
+        ])
+        self.assertIn("Please try again", events[-1]["detail"])
+        append.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -234,6 +234,11 @@ response. The final stage produces structured headings, paragraphs, bullets,
 and steps with source IDs; the frontend renders at most one linked source icon
 beside each answer part.
 
+If Groq rejects a structured response with `json_validate_failed`, the app
+retries once in JSON Object Mode and still validates the result locally,
+including citations. A second failure returns a retryable error instead of
+saving an incomplete answer.
+
 The system prompt requires the model to:
 
 - answer only from the retrieved context
