@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1010" viewBox="0 0 1400 1010" role="img" aria-labelledby="title desc">
+  <title id="title">Agrobank PostgreSQL schema and logical relationships</title>
+  <desc id="desc">The resources and chat_messages tables have no foreign key between them. Multiple chat messages share a session_id to form a conversation. Qdrant chunks live outside PostgreSQL and carry a resource_id that logically refers to resources.id.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f4f8f5; }
+      .frame { fill: #eaf3ed; stroke: #a8c7b1; stroke-width: 2; }
+      .card { fill: #fff; stroke: #bdd4c4; stroke-width: 2; }
+      .head { fill: #0b7550; }
+      .title { font: 700 34px Arial, sans-serif; fill: #173c2c; }
+      .subtitle { font: 19px Arial, sans-serif; fill: #4c6857; }
+      .frame-label { font: 700 20px Arial, sans-serif; fill: #176447; letter-spacing: 1px; }
+      .table-title { font: 700 27px Arial, sans-serif; fill: #fff; }
+      .row { font: 18px Consolas, 'Courier New', monospace; fill: #254434; }
+      .type { font: 17px Consolas, 'Courier New', monospace; fill: #526d5c; }
+      .key { font: 700 15px Arial, sans-serif; fill: #096c4b; }
+      .rule { stroke: #e1ebe3; stroke-width: 1; }
+      .note-title { font: 700 20px Arial, sans-serif; fill: #173c2c; }
+      .note { font: 18px Arial, sans-serif; fill: #405e4c; }
+      .edge { fill: none; stroke: #238260; stroke-width: 3; stroke-dasharray: 9 7; marker-end: url(#arrow); }
+      .edge-label { font: 17px Arial, sans-serif; fill: #176447; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#238260"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1400" height="1010"/>
+  <text class="title" x="70" y="58">PostgreSQL schema</text>
+  <text class="subtitle" x="70" y="88">Two independent tables; no PostgreSQL foreign keys</text>
+
+  <rect class="frame" x="50" y="112" width="1300" height="680" rx="20"/>
+  <text class="frame-label" x="82" y="146">POSTGRESQL · rag DATABASE</text>
+
+  <rect class="card" x="80" y="174" width="610" height="570" rx="14"/>
+  <path class="head" d="M94 174 H676 Q690 174 690 188 V238 H80 V188 Q80 174 94 174 Z"/>
+  <text class="table-title" x="106" y="216">resources</text>
+  <text class="subtitle" x="106" y="267">One row per discovered Agrobank page</text>
+  <line class="rule" x1="106" y1="281" x2="664" y2="281"/>
+  <text class="row" x="106" y="310">id</text><text class="type" x="355" y="310">integer</text><text class="key" x="604" y="310">PK</text>
+  <text class="row" x="106" y="339">code</text><text class="type" x="355" y="339">varchar(500)</text><text class="key" x="558" y="339">UNIQUE</text>
+  <text class="row" x="106" y="368">language</text><text class="type" x="355" y="368">varchar(10)</text>
+  <text class="row" x="106" y="397">page_url</text><text class="type" x="355" y="397">varchar(2000)</text>
+  <text class="row" x="106" y="426">api_url</text><text class="type" x="355" y="426">varchar(2000)</text>
+  <text class="row" x="106" y="455">title</text><text class="type" x="355" y="455">varchar(1000)?</text>
+  <text class="row" x="106" y="484">content_text</text><text class="type" x="355" y="484">text</text>
+  <text class="row" x="106" y="513">raw_json</text><text class="type" x="355" y="513">jsonb</text>
+  <text class="row" x="106" y="542">content_hash</text><text class="type" x="355" y="542">varchar(64)</text>
+  <text class="row" x="106" y="571">discovered_from</text><text class="type" x="355" y="571">varchar(500)?</text>
+  <text class="row" x="106" y="600">source_updated_at</text><text class="type" x="355" y="600">varchar(100)?</text>
+  <text class="row" x="106" y="629">is_active</text><text class="type" x="355" y="629">boolean</text>
+  <text class="row" x="106" y="658">last_seen_at</text><text class="type" x="355" y="658">timestamptz</text>
+  <text class="row" x="106" y="687">last_processed_at</text><text class="type" x="355" y="687">timestamptz?</text>
+  <text class="note" x="106" y="724">? = nullable · indexed: code, language, content_hash, is_active</text>
+
+  <rect class="card" x="750" y="174" width="570" height="328" rx="14"/>
+  <path class="head" d="M764 174 H1306 Q1320 174 1320 188 V238 H750 V188 Q750 174 764 174 Z"/>
+  <text class="table-title" x="776" y="216">chat_messages</text>
+  <text class="subtitle" x="776" y="267">One row per user or assistant message</text>
+  <line class="rule" x1="776" y1="281" x2="1294" y2="281"/>
+  <text class="row" x="776" y="314">id</text><text class="type" x="1030" y="314">integer</text><text class="key" x="1240" y="314">PK</text>
+  <text class="row" x="776" y="352">session_id</text><text class="type" x="1030" y="352">varchar(100)</text>
+  <text class="row" x="776" y="390">role</text><text class="type" x="1030" y="390">varchar(20)</text>
+  <text class="row" x="776" y="428">content</text><text class="type" x="1030" y="428">text</text>
+  <text class="row" x="776" y="466">created_at</text><text class="type" x="1030" y="466">timestamptz</text>
+
+  <rect class="card" x="750" y="536" width="570" height="208" rx="14"/>
+  <text class="note-title" x="776" y="576">Conversation relationship (logical)</text>
+  <text class="note" x="776" y="612">One session_id → many chat_messages</text>
+  <text class="note" x="776" y="644">There is no sessions table or FK constraint.</text>
+  <text class="note" x="776" y="676">session_id and created_at are indexed.</text>
+
+  <path class="edge" d="M 385 744 V 836"/>
+  <text class="edge-label" x="435" y="825">resources.id → Qdrant payload.resource_id (logical reference, not FK)</text>
+  <rect class="card" x="80" y="852" width="1240" height="116" rx="14" stroke-dasharray="9 7"/>
+  <text class="note-title" x="106" y="894">Qdrant chunk points · external vector database</text>
+  <text class="note" x="106" y="928">Each chunk payload stores resource_id, chunk_index, language, title, page_url, and text.</text>
+</svg>

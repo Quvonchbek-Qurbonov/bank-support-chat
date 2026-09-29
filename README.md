@@ -28,36 +28,32 @@ It is a retrieval-based system: the language model is given retrieved Agrobank w
                                │
                                ▼
                     ┌─────────────────────┐
-                    │   Sync Worker       │
-                    │                     │
-                    │ discovery           │
-                    │ fetching            │
-                    │ normalization       │
-                    │ chunking             │
-                    │ change detection     │
+                    │ Sync worker         │
+                    │ discover → normalize│
+                    │ → chunk → embed     │
                     └───────┬─────┬───────┘
                             │     │
                    raw data │     │ embeddings
                             │     │
                             ▼     ▼
                      PostgreSQL  Qdrant
-                            │      │
-                            │      │ vector search
-                            │      ▼
-                            │  Top-K chunks
-                            │      │
-                            └──────┼──────────────┐
-                                   ▼              │
-                              FastAPI API         │
-                                   │              │
-                                   ▼              │
-                              Groq / LLM ◄────────┘
-                                   │
-                                   ▼
-                             Chat response
-                                   │
-                                   ▼
-                              Web frontend
+                     resources   chunk vectors
+                     chat history   │
+                            │       │
+                            └───┬───┘
+                                ▼
+                    Frontend → FastAPI API
+                                │
+                     router: language + intent
+                         ┌──────┴──────┐
+                         ▼             ▼
+                    live rates API   hybrid search
+                         │          + reranking
+                         └──────┬──────┘
+                                ▼
+                        Groq final answer
+                                ▼
+                     cited answer + history
 ```
 
 ## RAG Pipeline
@@ -65,13 +61,13 @@ It is a retrieval-based system: the language model is given retrieved Agrobank w
 A typical request follows this flow:
 
 1. The user sends a question.
-2. The question is converted into an embedding using `intfloat/multilingual-e5-small`.
-3. Qdrant retrieves semantic (dense) and exact-term BM25 (sparse) candidates in the detected language.
-4. Qdrant combines the two ranked lists with reciprocal rank fusion (RRF).
-5. A local cross-encoder reranks the candidate chunks against the search query.
-6. The best `CONTEXT_TOP_K` chunks are assembled into the LLM context.
-7. Groq generates the final response.
-8. The API returns the answer and retrieved source metadata.
+2. A Groq router classifies intent and language, and decides whether retrieval or the live exchange-rates tool is needed.
+3. For retrieval, the question is converted into an E5 embedding.
+4. Qdrant retrieves semantic (dense) and exact-term BM25 (sparse) candidates in that language.
+5. Qdrant combines the two ranked lists with reciprocal rank fusion (RRF).
+6. A local cross-encoder reranks the candidate chunks against the search query.
+7. The best `CONTEXT_TOP_K` chunks are assembled into the LLM context. Exchange-rate questions instead fetch fresh rates from Agrobank's API; mixed questions can use both paths.
+8. Groq generates structured answer parts and source references. The API returns the cited answer, sources, and session ID and saves the conversation in PostgreSQL.
 
 The LLM is explicitly instructed to avoid inventing fees, rates, limits, dates, eligibility rules, or other banking details that are not present in the retrieved context.
 
@@ -169,17 +165,18 @@ The splitter first tries to keep paragraphs together. Long paragraphs are split 
 
 ## Embeddings
 
-The current embedding model is:
+The configured embedding model and Qdrant dimension must match. The example
+Docker setup mounts a local E5-base model directory and uses:
 
 ```text
-intfloat/multilingual-e5-small
+EMBEDDING_MODEL=/models/multilingual-e5-base
+EMBEDDING_DIM=768
 ```
 
-Configuration:
+The code defaults, when these settings are omitted, are E5-small with 384
+dimensions. Do not switch between the 384- and 768-dimensional models against
+the same Qdrant collection without rebuilding its vectors.
 
-```text
-EMBEDDING_DIM=384
-```
 
 Documents are embedded using the E5 document format:
 
@@ -222,13 +219,20 @@ Default model:
 openai/gpt-oss-20b
 ```
 
-The LLM configuration can be changed through:
+The router and answer stages can use separate credentials and models:
 
 ```text
-GROQ_MODEL
+GROQ_ROUTER_API_KEY
+GROQ_ROUTER_MODEL
+GROQ_FINAL_API_KEY
+GROQ_FINAL_MODEL
 ```
 
-The response generation uses a low-temperature configuration and a bounded completion length.
+Both model settings default to `openai/gpt-oss-20b`. The router selects the
+language and whether to use retrieval, live exchange rates, or a direct
+response. The final stage produces structured headings, paragraphs, bullets,
+and steps with source IDs; the frontend renders at most one linked source icon
+beside each answer part.
 
 The system prompt requires the model to:
 
@@ -249,7 +253,7 @@ The system prompt requires the model to:
 | ORM | SQLAlchemy |
 | Vector database | Qdrant |
 | Embeddings | Sentence Transformers |
-| Embedding model | `intfloat/multilingual-e5-small` |
+| Embedding model | Multilingual E5 (local base model in the example Docker setup) |
 | LLM provider | Groq |
 | Frontend | HTML / CSS / JavaScript |
 | Web server | Nginx |
@@ -259,10 +263,11 @@ The system prompt requires the model to:
 ## Project Structure
 
 ```text
-bank-support-chat/
+bank-support-ai/
 ├── app/
 │   ├── api/
 │   │   ├── routes.py
+│   │   ├── debug_router.py
 │   │   └── schemas/
 │   ├── core/
 │   │   └── config.py
@@ -277,22 +282,31 @@ bank-support-chat/
 │   │   └── sparse_embeddings.py
 │   ├── llm/
 │   │   └── llm.py
+│   ├── tools/
+│   │   └── exchange_rates.py
 │   ├── vector_db/
 │   │   └── vector_store.py
 │   ├── service/
-│   │   └── context.py
+│   │   ├── chat_history.py
+│   │   ├── context.py
+│   │   └── llm_system_promts.py
 │   ├── db.py
 │   ├── main.py
 │   └── worker.py
 ├── frontend/
 │   ├── index.html
 │   ├── app.js
+│   ├── agrobank-chatbot.png
 │   ├── styles.css
 │   ├── nginx.conf
 │   └── Dockerfile
 ├── bruno-docs/
-├── Dockerfile
+├── docs/
+│   └── postgres-schema.svg
+├── Dockerfile.dev
+├── Dockerfile.prod
 ├── docker-compose.yml
+├── docker-compose.gpu.yml
 ├── requirements.txt
 └── README.md
 ```
@@ -308,13 +322,15 @@ No local Python installation is required to run the full stack through Docker Co
 
 ## Configuration
 
-Create a `.env` file in the project root.
+Copy `.env.example` to `.env` in the project root and set the keys and model
+paths for your deployment. `.env` is ignored by Git.
 
 Example:
 
 ```env
 APP_ENV=dev
 API_PORT=8000
+LOG_LEVEL=INFO
 
 BANK_BASE_URL=https://agrobank.uz
 BANK_MENU_URL=https://agrobank.uz/api/v1/menu.json
@@ -327,8 +343,9 @@ DATABASE_URL=postgresql+psycopg://rag:rag@postgres:5432/rag
 QDRANT_URL=http://qdrant:6333
 QDRANT_COLLECTION=agrobank_pages
 
-EMBEDDING_MODEL=intfloat/multilingual-e5-small
-EMBEDDING_DIM=384
+EMBEDDING_MODEL=/models/multilingual-e5-base
+EMBEDDING_DIM=768
+EMBEDDING_DEVICE=cpu
 CHUNK_SIZE=1200
 CHUNK_OVERLAP=150
 RETRIEVAL_CANDIDATE_K=20
@@ -336,16 +353,24 @@ CONTEXT_TOP_K=6
 RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 RERANKER_BATCH_SIZE=8
 
-GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=openai/gpt-oss-20b
+GROQ_ROUTER_API_KEY=your_groq_api_key
+GROQ_ROUTER_MODEL=openai/gpt-oss-20b
+GROQ_FINAL_API_KEY=your_groq_api_key
+GROQ_FINAL_MODEL=openai/gpt-oss-20b
 ```
 
-`DATABASE_URL` and `GROQ_API_KEY` are the important values for the default Docker Compose setup.
+The mounted `/models/multilingual-e5-base` path requires a matching
+`./models/multilingual-e5-base` directory on the host. Use `EMBEDDING_DEVICE=cpu`
+for the default Compose file. The embedding dimension must match both the model
+and the existing Qdrant collection. Set both Groq keys; `GROQ_API_KEY` and
+`GROQ_MODEL` are not read by the current application.
 
 Do not commit `.env` or any API keys to Git.
 
 ## Run with Docker Compose
 
+The default `docker-compose.yml` does not request a GPU. Set `APP_ENV=dev` or
+`APP_ENV=prod` to select `Dockerfile.dev` or `Dockerfile.prod`, respectively.
 Build the images:
 
 ```bash
@@ -357,6 +382,12 @@ Start the application:
 ```bash
 docker compose up -d
 ```
+
+On a host where Docker can access an NVIDIA GPU, use
+`docker compose -f docker-compose.gpu.yml up -d --build` instead. That file
+requests a GPU for both API and worker. It cannot start those services on a
+host without GPU passthrough. The production Dockerfile installs dependencies
+without the development build cache; its first build can be large and slow.
 
 Check service status:
 
@@ -402,8 +433,9 @@ The default Docker Compose configuration starts:
 |---|---|---|
 | `frontend` | Web chat UI | `8080` |
 | `api` | FastAPI backend | `8000` |
-| `postgres` | RelevantResource metadata and raw content | internal |
-| `qdrant` | Vector storage and similarity search | `6333` |
+| `worker` | Periodic Agrobank synchronization | none |
+| `postgres` | Resources and chat messages | `5432` |
+| `qdrant` | Vector storage and hybrid search | internal `6333`; random host port in the default Compose file |
 
 Open the chatbot in your browser:
 
@@ -423,7 +455,10 @@ FastAPI's automatic documentation is available at:
 http://localhost:8000/docs
 ```
 
-Qdrant is exposed on:
+Qdrant is available to other Compose services at `http://qdrant:6333`.
+The default Compose file publishes it on a random host port; find that port
+with `docker compose port qdrant 6333`. The GPU Compose file explicitly maps
+host port 6333, so on that variant it is exposed on:
 
 ```text
 http://localhost:6333
@@ -451,19 +486,21 @@ Response:
 }
 ```
 
-### List Resources
+### Inspect Relevant Resources
 
 ```http
-GET /resources
+GET /relevants?question=<text>&language=<uz|ru|en>
 ```
 
 Example:
 
 ```bash
-curl "http://localhost:8000/resources?limit=20"
+curl "http://localhost:8000/relevants?question=Humo%20card&language=en"
 ```
 
-The endpoint returns discovered Agrobank resources and processing metadata.
+This debug endpoint returns retrieved chunks and source metadata. It runs the
+embedding, hybrid retrieval, and reranking stages. `/debug/analyze?question=...`
+exposes the router's analysis for debugging.
 
 ### Chat
 
@@ -479,28 +516,40 @@ curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
   -d '{
     "question": "Humo kartani chiqarish narxi qancha?",
-    "language": "uz"
+    "session_id": "550e8400-e29b-41d4-a716-446655440000"
   }'
 ```
 
-The `language` field is optional.
+`session_id` is optional; the API creates one if omitted. The router detects
+the question language. Reuse the returned session ID to continue a chat.
 
 Example response:
 
 ```json
 {
   "answer": "....",
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
   "sources": [
     {
       "title": "....",
       "page_url": "....",
       "score": 0.87
     }
+  ],
+  "parts": [
+    {"kind": "bullet", "text": "...", "source_ids": [1]}
   ]
 }
 ```
 
-The web interface can use the API through the Nginx `/api/` reverse proxy.
+`POST /chat/stream` accepts the same JSON and streams newline-delimited JSON
+events: `phase` (`analyzing`, `exchange_rates`, `retrieving`, `generating`),
+then `result` with the same response shape, or `error`. The web interface uses
+this route through the Nginx `/api/` reverse proxy.
+
+Chat history endpoints are `GET /chat/sessions` (latest eight),
+`POST /chat/session` (load messages), and `DELETE /chat/session` (delete all
+messages for a session). The latter two accept a JSON UUID `session_id`.
 
 ## Frontend
 
@@ -510,12 +559,12 @@ It provides:
 
 - chatbot-style conversation UI
 - Agrobank branding
-- Uzbek, Russian, and English response-language selection
-- example prompts
-- conversation clearing
+- automatic Uzbek, Russian, and English language routing
+- new-chat action and per-chat deletion
 - a collapsible history drawer with the eight most recently active chats in
   the database; selecting one reloads its messages and continues the session
-- character counting
+- progress labels for routing, retrieval/live rates, and final generation
+- character counting and source-link icons beside cited answer parts
 - API health status
 - responsive layout
 
@@ -528,7 +577,10 @@ source-link metadata from older answers was not stored in the database.
 
 ## Database Design
 
-PostgreSQL stores one resource record for each discovered Agrobank page.
+PostgreSQL has two tables: one `resources` row per discovered Agrobank page
+and one `chat_messages` row per saved user or assistant message.
+
+![PostgreSQL schema and logical relationships](docs/postgres-schema.svg)
 
 Important fields include:
 
@@ -549,7 +601,13 @@ last_seen_at
 last_processed_at
 ```
 
-`content_text` contains the normalized page text used during processing, while `raw_json` preserves the original API response.
+`content_text` contains normalized page text; `raw_json` preserves the original
+API response. `resources.code` is unique. `chat_messages.session_id` groups
+messages into conversations; there is no separate sessions table. The tables
+have **no PostgreSQL foreign key between them**. Qdrant chunk payloads contain
+`resource_id` referencing `resources.id` logically, but Qdrant is a separate
+database and PostgreSQL does not enforce that relationship. Both PostgreSQL
+and Qdrant data persist in named Docker volumes across ordinary rebuilds.
 
 ## Vector Store
 
@@ -566,7 +624,9 @@ page_url
 text
 ```
 
-Vectors are stored in the `agrobank_pages` collection using cosine similarity.
+Dense vectors use cosine similarity in the `agrobank_pages` collection; sparse
+BM25 vectors use the `bm25` vector name. Dense and sparse search results are
+fused with RRF before cross-encoder reranking.
 
 When a page changes, its old vectors are deleted and the newly generated chunk vectors are inserted.
 
@@ -626,7 +686,8 @@ Stop the stack:
 docker compose down
 ```
 
-Stop the stack and remove persisted database/vector volumes:
+Destructive: stop the stack and **delete** persisted PostgreSQL, Qdrant, and
+model-cache volumes (this permanently removes chat history and indexed data):
 
 ```bash
 docker compose down -v
@@ -666,7 +727,7 @@ Check the API logs:
 docker compose logs -f api
 ```
 
-Verify that `GROQ_API_KEY` is present in `.env`.
+Verify that `GROQ_ROUTER_API_KEY` and `GROQ_FINAL_API_KEY` are set in `.env`.
 
 ### No useful answers are returned
 
@@ -681,7 +742,7 @@ You should see synchronization progress, including discovered, fetched, changed,
 Also check:
 
 ```bash
-curl http://localhost:8000/resources
+curl "http://localhost:8000/relevants?question=Agrobank%20card&language=en"
 ```
 
 If resources have not been ingested, the retrieval layer has no content to use.
@@ -783,7 +844,9 @@ Current implementation:
 - configurable chunking with overlap
 - multilingual E5 embeddings
 - Qdrant vector search
-- similarity-score filtering
+- dense/sparse hybrid search with reranking
+- live exchange-rate retrieval for exchange offices, ATMs, and international transfers
+- session-based PostgreSQL chat history and source-linked answers
 - Groq LLM generation
 - FastAPI REST API
 - Docker Compose deployment
