@@ -75,6 +75,22 @@ A typical request follows this flow:
 
 The LLM is explicitly instructed to avoid inventing fees, rates, limits, dates, eligibility rules, or other banking details that are not present in the retrieved context.
 
+The web chat uses `POST /chat/stream` for newline-delimited progress events:
+analyzing the question, fetching live exchange rates or retrieving documents,
+and generating the final answer. The last event contains the same response as
+`POST /chat`, which remains available for non-streaming clients. The Nginx
+proxy disables buffering for the streaming route so these stages appear as
+they start.
+
+Current currency exchange-rate questions take a live-tool path instead of
+relying on previously indexed Qdrant chunks. `app/tools/exchange_rates.py`
+fetches Agrobank's public page API for every such question and supplies the
+exchange-office, ATM, and international-transfer tables separately, including
+each quoted rate's update time. A zero or missing quote is treated as not
+published. The answer links to Agrobank's readable exchange-rates page; if the
+live API is unavailable, the chatbot reports an error rather than using stale
+rates. Mixed questions can also retrieve non-rate information from Qdrant.
+
 ## Data Ingestion
 
 The synchronization worker runs continuously.
@@ -255,10 +271,14 @@ bank-support-chat/
 │   │   ├── discovery.py
 │   │   ├── normalizer.py
 │   │   └── sync_service.py
-│   ├── rag/
+│   ├── encoder/
 │   │   ├── embeddings.py
-│   │   ├── vector_store.py
+│   │   ├── reranker.py
+│   │   └── sparse_embeddings.py
+│   ├── llm/
 │   │   └── llm.py
+│   ├── vector_db/
+│   │   └── vector_store.py
 │   ├── service/
 │   │   └── context.py
 │   ├── db.py
@@ -493,11 +513,18 @@ It provides:
 - Uzbek, Russian, and English response-language selection
 - example prompts
 - conversation clearing
+- a collapsible history drawer with the eight most recently active chats in
+  the database; selecting one reloads its messages and continues the session
 - character counting
 - API health status
 - responsive layout
 
 The frontend container proxies `/api/*` requests to the FastAPI `api:8000` service.
+Opening the page starts a new chat; selecting a sidebar item reopens that saved
+session. The history API lists the latest chats across the database, so anyone
+with access to this unauthenticated app can view and delete those conversations.
+Previously saved answers are displayed from their plain-text message history;
+source-link metadata from older answers was not stored in the database.
 
 ## Database Design
 

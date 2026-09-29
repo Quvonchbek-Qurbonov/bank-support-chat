@@ -6,8 +6,8 @@ from pydantic import ValidationError
 
 from app.api import routes
 from app.api.schemas.schemas import AnswerPart, ChatRequest
-from app.rag.llm import ChatDecision, FinalAnswer
-from app.rag.vector_store import VectorStore
+from app.llm.llm import ChatDecision, FinalAnswer
+from app.vector_db.vector_store import VectorStore
 
 
 class LanguageRoutingTests(unittest.TestCase):

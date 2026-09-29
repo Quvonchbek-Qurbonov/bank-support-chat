@@ -7,6 +7,12 @@ const characterCount = document.getElementById("character-count");
 const clearChatButton = document.getElementById("clear-chat");
 const statusDot = document.getElementById("status-dot");
 const statusText = document.getElementById("status-text");
+const historyList = document.getElementById("history-list");
+const historyPanel = document.getElementById("history-panel");
+const historyToggle = document.getElementById("history-toggle");
+const historyBackdrop = document.getElementById("history-backdrop");
+const agrobankAvatarUrl = "https://play-lh.googleusercontent.com/RHFefZVUG-N9L9_-PA3NwU9NkLlUgALApzlYpVKtdDhm5dno3FsKg-IdgS8vGL7IVsevMSr_4LDHTBF9eyZr2wA";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function generateUUID() {
   if (
@@ -61,6 +67,7 @@ let sessionId = generateUUID();
 const state = {
   loading: false,
 };
+let historyLoaded = false;
 
 /* ==========================================================================
    SECURITY
@@ -74,6 +81,17 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#039;",
   }[char]));
+}
+
+function showAgrobankAvatar(container) {
+  const image = document.createElement("img");
+  image.src = agrobankAvatarUrl;
+  image.alt = "";
+  image.decoding = "async";
+  image.addEventListener("error", () => {
+    container.textContent = "A";
+  });
+  container.replaceChildren(image);
 }
 
 function decodeHtmlEntities(value) {
@@ -885,6 +903,9 @@ async function checkBackend() {
     }
 
     setBackendStatus(true);
+    if (!historyLoaded) {
+      refreshHistory();
+    }
   } catch (error) {
     console.error(
       "Backend health check failed:",
@@ -1053,10 +1074,11 @@ function addMessage(
         : ""
     }`;
 
-  avatar.textContent =
-    role === "user"
-      ? "You"
-      : "A";
+  if (role === "user") {
+    avatar.textContent = "You";
+  } else {
+    showAgrobankAvatar(avatar);
+  }
 
   avatar.setAttribute(
     "aria-hidden",
@@ -1146,8 +1168,7 @@ function addTypingIndicator() {
   avatar.className =
     "avatar";
 
-  avatar.textContent =
-    "A";
+  showAgrobankAvatar(avatar);
 
   avatar.setAttribute(
     "aria-hidden",
@@ -1159,17 +1180,23 @@ function addTypingIndicator() {
 
   typing.className =
     "typing";
+  typing.setAttribute("role", "status");
+  typing.setAttribute("aria-live", "polite");
 
-  typing.setAttribute(
-    "aria-label",
-    "Agrobank AI is thinking"
-  );
+  const dots = document.createElement("div");
+  dots.className = "typing-dots";
 
   for (let i = 0; i < 3; i += 1) {
-    typing.appendChild(
+    dots.appendChild(
       document.createElement("span")
     );
   }
+
+  const label = document.createElement("span");
+  label.className = "typing-label";
+  label.textContent = "Analyzing your question…";
+  typing.appendChild(dots);
+  typing.appendChild(label);
 
   row.appendChild(avatar);
   row.appendChild(typing);
@@ -1177,6 +1204,19 @@ function addTypingIndicator() {
   list.appendChild(row);
 
   scrollToBottom();
+}
+
+function setTypingPhase(phase) {
+  const labels = {
+    analyzing: "Analyzing your question…",
+    exchange_rates: "Getting current exchange rates…",
+    retrieving: "Finding relevant bank information…",
+    generating: "Generating the final answer…",
+  };
+  const label = document.querySelector("#typing-row .typing-label");
+  if (label && labels[phase]) {
+    label.textContent = labels[phase];
+  }
 }
 
 function removeTypingIndicator() {
@@ -1209,8 +1249,223 @@ function setLoading(loading) {
 }
 
 /* ==========================================================================
+   CHAT HISTORY
+   ========================================================================== */
+
+function renderHistory(sessions) {
+  historyList.replaceChildren();
+  if (!sessions.length) {
+    const empty = document.createElement("p");
+    empty.className = "history-empty";
+    empty.textContent = "No recent chats yet.";
+    historyList.appendChild(empty);
+    return;
+  }
+
+  for (const chat of sessions.slice(0, 8)) {
+    const row = document.createElement("div");
+    row.className = "history-row";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `history-item${chat.session_id === sessionId ? " active" : ""}`;
+    button.textContent = chat.title || "Chat";
+    button.title = chat.title || "Chat";
+    button.setAttribute("aria-current", chat.session_id === sessionId ? "page" : "false");
+    button.addEventListener("click", () => loadChatSession(chat.session_id));
+    row.appendChild(button);
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "history-delete";
+    deleteButton.title = "Delete chat";
+    deleteButton.setAttribute("aria-label", `Delete chat: ${chat.title || "Chat"}`);
+    deleteButton.innerHTML = `<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m5 4v6m4-6v6" /></svg>`;
+    deleteButton.addEventListener("click", () => deleteChatSession(chat.session_id));
+    row.appendChild(deleteButton);
+    historyList.appendChild(row);
+  }
+}
+
+async function refreshHistory() {
+  try {
+    const response = await fetch("/api/chat/sessions", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok) {
+      throw new Error(`History request failed: HTTP ${response.status}`);
+    }
+    const sessions = await response.json();
+    historyLoaded = true;
+    renderHistory(Array.isArray(sessions) ? sessions : []);
+  } catch (error) {
+    historyLoaded = false;
+    console.error("Could not load recent chats:", error);
+    if (!historyList.querySelector(".history-row")) {
+      historyList.innerHTML = '<p class="history-empty">History unavailable. Retrying when the server is ready…</p>';
+    }
+  }
+}
+
+async function deleteChatSession(id) {
+  if (state.loading || !window.confirm("Delete this chat permanently?")) {
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/chat/session", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ session_id: id }),
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Delete request failed: HTTP ${response.status}`);
+    }
+
+    if (sessionId === id) {
+      startNewChat();
+    } else {
+      refreshHistory();
+    }
+  } catch (error) {
+    console.error("Could not delete chat:", error);
+    window.alert("Could not delete this chat. Please try again.");
+  }
+}
+
+function setHistoryOpen(open) {
+  historyPanel.classList.toggle("open", open);
+  historyPanel.inert = !open;
+  historyBackdrop.classList.toggle("open", open);
+  historyToggle.setAttribute("aria-expanded", String(open));
+  historyToggle.setAttribute("aria-label", open ? "Close recent chats" : "Recent chats");
+  historyToggle.title = open ? "Close recent chats" : "Recent chats";
+  if (open) {
+    historyPanel.focus();
+  }
+}
+
+function showWelcome() {
+  messages.replaceChildren();
+  const welcome = document.createElement("div");
+  welcome.id = "welcome-view";
+  welcome.className = "welcome-view";
+  welcome.innerHTML = `
+    <div class="welcome-icon" aria-hidden="true"><img src="/agrobank-chatbot.png" alt=""></div>
+    <h2>How can I help you today?</h2>
+    <p>Ask about Agrobank cards, tariffs, transfers, services, requirements,
+    and other information available on the bank’s public website.</p>
+  `;
+  messages.appendChild(welcome);
+}
+
+function startNewChat() {
+  if (state.loading) {
+    return;
+  }
+  sessionId = generateUUID();
+  showWelcome();
+  setHistoryOpen(false);
+  refreshHistory();
+  input.focus();
+}
+
+async function loadChatSession(id) {
+  if (state.loading || !uuidPattern.test(id)) {
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const response = await fetch("/api/chat/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ session_id: id }),
+    });
+    if (!response.ok) {
+      throw new Error(`Conversation request failed: HTTP ${response.status}`);
+    }
+    const savedMessages = await response.json();
+    if (!Array.isArray(savedMessages) || !savedMessages.length) {
+      throw new Error("This conversation is no longer available.");
+    }
+
+    sessionId = id;
+    messages.replaceChildren();
+    for (const message of savedMessages) {
+      if (message.role === "user" || message.role === "assistant") {
+        addMessage(message.role, message.content);
+      }
+    }
+    setHistoryOpen(false);
+    refreshHistory();
+  } catch (error) {
+    console.error("Could not open conversation:", error);
+    statusText.textContent = "Could not open chat";
+  } finally {
+    setLoading(false);
+    input.focus();
+  }
+}
+
+/* ==========================================================================
    CHAT
    ========================================================================== */
+
+async function readChatStream(response) {
+  if (!response.body) {
+    throw new Error("This browser cannot read the chat response stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = "";
+  let result = null;
+
+  function handleLine(line) {
+    if (!line.trim()) {
+      return;
+    }
+    const event = JSON.parse(line);
+    if (event.type === "phase") {
+      setTypingPhase(event.phase);
+    } else if (event.type === "error") {
+      throw new Error(event.detail || "The chat service could not complete this request.");
+    } else if (event.type === "result") {
+      result = event.data;
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+      let newline;
+      while ((newline = pending.indexOf("\n")) !== -1) {
+        handleLine(pending.slice(0, newline));
+        pending = pending.slice(newline + 1);
+      }
+      if (done) {
+        break;
+      }
+    }
+    handleLine(pending);
+  } catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!result) {
+    throw new Error("The chat service ended without an answer.");
+  }
+  return result;
+}
 
 async function sendQuestion(question) {
   const text =
@@ -1234,11 +1489,12 @@ async function sendQuestion(question) {
 
   setLoading(true);
   addTypingIndicator();
+  let backendResponded = false;
 
   try {
     const response =
       await fetch(
-        "/api/chat",
+        "/api/chat/stream",
         {
           method: "POST",
 
@@ -1257,18 +1513,17 @@ async function sendQuestion(question) {
           }),
         }
       );
-
-    const payload =
-      await response
-        .json()
-        .catch(() => ({}));
+    backendResponded = response.ok;
 
     if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({}));
       throw new Error(
-        payload?.detail ||
+        errorPayload?.detail ||
           `Chat request failed: HTTP ${response.status}`
       );
     }
+
+    const payload = await readChatStream(response);
 
     removeTypingIndicator();
 
@@ -1304,6 +1559,7 @@ async function sendQuestion(question) {
     }
 
     setBackendStatus(true);
+    refreshHistory();
   } catch (error) {
     console.error(
       "Chat request failed:",
@@ -1314,13 +1570,13 @@ async function sendQuestion(question) {
 
     addMessage(
       "assistant",
-      `I couldn’t reach the Agrobank AI service. ${
+      `I couldn’t complete your request. ${
         error?.message ||
         "Please try again in a moment."
       }`
     );
 
-    setBackendStatus(false);
+    setBackendStatus(backendResponded);
   } finally {
     setLoading(false);
     input.focus();
@@ -1371,70 +1627,30 @@ input.addEventListener(
    CLEAR CHAT
    ========================================================================== */
 
-clearChatButton.addEventListener(
-  "click",
-  () => {
-    sessionId =
-      generateUUID();
-
-    document
-      .querySelector(
-        ".message-list"
-      )
-      ?.remove();
-
-    document
-      .getElementById(
-        "welcome-view"
-      )
-      ?.remove();
-
-    const welcome =
-      document.createElement(
-        "div"
-      );
-
-    welcome.id =
-      "welcome-view";
-
-    welcome.className =
-      "welcome-view";
-
-    welcome.innerHTML = `
-      <div
-        class="welcome-icon"
-        aria-hidden="true"
-      >
-        ✦
-      </div>
-
-      <h2>
-        How can I help you today?
-      </h2>
-
-      <p>
-        Ask about Agrobank cards, tariffs,
-        transfers, services, requirements,
-        and other information available on
-        the bank’s public website.
-      </p>
-    `;
-
-    messages.appendChild(
-      welcome
-    );
-
-    scrollToBottom();
+clearChatButton.addEventListener("click", startNewChat);
+historyToggle.addEventListener("click", () => {
+  setHistoryOpen(!historyPanel.classList.contains("open"));
+});
+historyBackdrop.addEventListener("click", () => {
+  setHistoryOpen(false);
+  historyToggle.focus();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && historyPanel.classList.contains("open")) {
+    setHistoryOpen(false);
+    historyToggle.focus();
   }
-);
+});
 
 /* ==========================================================================
    STARTUP
    ========================================================================== */
 
 autoResize();
+showAgrobankAvatar(document.querySelector(".brand-mark"));
 setLoading(false);
 checkBackend();
+refreshHistory();
 
 setInterval(
   checkBackend,

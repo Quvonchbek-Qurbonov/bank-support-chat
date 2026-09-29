@@ -5,6 +5,8 @@ import time
 
 from qdrant_client.http.models import SparseVector
 
+from fastembed import SparseTextEmbedding
+
 
 logger = logging.getLogger("agrobank.sparse_embeddings")
 
@@ -13,7 +15,6 @@ class SparseEmbeddingService:
     """BM25 tokens shared by indexing and querying, without English-only stemming."""
 
     def __init__(self) -> None:
-        from fastembed import SparseTextEmbedding
 
         started = time.monotonic()
         logger.info("bm25.loading model=Qdrant/bm25")

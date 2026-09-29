@@ -8,8 +8,8 @@ from qdrant_client.http.models import PointStruct, SparseVector
 
 from app.api import debug_router
 from app.main import app
-from app.rag.reranker import Reranker
-from app.rag.vector_store import SPARSE_VECTOR_NAME, VectorStore
+from app.encoder.reranker import Reranker
+from app.vector_db.vector_store import SPARSE_VECTOR_NAME, VectorStore
 from app.service import context
 
 
@@ -43,7 +43,7 @@ class RetrievalPipelineTests(unittest.TestCase):
                 "language": "en", "page_url": "https://agrobank.uz/en/humo",
             })],
         )
-        with patch("app.rag.vector_store.get_sparse_embedding_service", return_value=FakeSparseEmbedder()):
+        with patch("app.vector_db.vector_store.get_sparse_embedding_service", return_value=FakeSparseEmbedder()):
             self.assertEqual(self.store.backfill_sparse_vectors(), 1)
             self.assertEqual(self.store.backfill_sparse_vectors(), 0)
 
@@ -53,7 +53,7 @@ class RetrievalPipelineTests(unittest.TestCase):
 
     def test_hybrid_search_keeps_language_filter(self):
         sparse = FakeSparseEmbedder()
-        with patch("app.rag.vector_store.get_sparse_embedding_service", return_value=sparse):
+        with patch("app.vector_db.vector_store.get_sparse_embedding_service", return_value=sparse):
             self.store.replace_resource_chunks(1, "https://agrobank.uz/en/humo", "en", "Humo", ["Humo card"], [[1.0, 0.0]])
             self.store.replace_resource_chunks(2, "https://agrobank.uz/ru/humo", "ru", "Humo", ["Humo card"], [[1.0, 0.0]])
             hits = self.store.search([1.0, 0.0], 10, "ru", query_text="humo")

@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.api.schemas.schemas import RelevantResource
 from app.service.context import build_context
-from app.rag.llm import LLMService, ChatDecision
+from app.llm.llm import LLMService, ChatDecision
 
 
 router = APIRouter()

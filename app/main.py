@@ -4,13 +4,14 @@ import logging
 import time
 import uuid
 
-from app.rag.embeddings import get_embedding_service
+from app.encoder.embeddings import get_embedding_service
 from fastapi import FastAPI, Request
 from app.db import init_db
 from app.api.routes import router as main_router
 from app.api.debug_router import router as debug_router
 from app.core.logging import bind_request_id, configure_logging, reset_request_id
-from app.rag.vector_store import get_vector_store
+from app.encoder.reranker import get_reranker
+from app.vector_db.vector_store import get_vector_store
 
 logger = logging.getLogger("agrobank.api")
 
@@ -20,6 +21,7 @@ async def lifespan(_: FastAPI):
     logger.info("api.starting")
     init_db()
     get_embedding_service()
+    get_reranker()
     get_vector_store()
     logger.info("api.ready")
     yield

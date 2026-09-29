@@ -1,18 +1,30 @@
+import json
+import logging
+from collections.abc import Iterator
 from typing import List, Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from groq import RateLimitError
 
-from app.api.schemas.schemas import AnswerPart, ChatResponse, ChatRequest, Source, ResourceRequest, RelevantResource
+from app.api.schemas.schemas import (
+    AnswerPart, ChatResponse, ChatRequest, ChatSession, SavedMessage,
+    SessionMessagesRequest, Source,
+)
 from app.service.context import build_context
-from app.rag.llm import LLMService, ChatDecision
+from app.tools.exchange_rates import get_exchange_rate_context
+from app.llm.llm import LLMService, ChatDecision
 
 import uuid
 
-from app.service.chat_history import append_turn, get_history
+from app.service.chat_history import (
+    append_turn, delete_session_messages, get_history, get_session_messages,
+    list_recent_sessions,
+)
 
 router = APIRouter()
+logger = logging.getLogger("agrobank.chat")
 
 
 def format_answer_with_links(parts: list[AnswerPart], sources: list[Source]) -> str:
@@ -63,105 +75,122 @@ def format_answer_with_links(parts: list[AnswerPart], sources: list[Source]) -> 
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
+
+@router.get("/chat/sessions", response_model=list[ChatSession])
+def recent_chat_sessions() -> list[dict]:
+    return list_recent_sessions()
+
+
+@router.post("/chat/session", response_model=list[SavedMessage])
+def saved_chat_messages(body: SessionMessagesRequest) -> list[dict]:
+    return get_session_messages(str(body.session_id))
+
+
+@router.delete("/chat/session", status_code=204)
+def delete_chat_session(body: SessionMessagesRequest) -> None:
+    if not delete_session_messages(str(body.session_id)):
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+
+def _chat_events(body: ChatRequest) -> Iterator[dict]:
+    """Yield real processing phases, then the completed chat response."""
+    session_id = body.session_id or str(uuid.uuid4())
+    yield {"type": "phase", "phase": "analyzing"}
+    llm = LLMService()
+    history = get_history(session_id)
+
+    decision = llm.analyze(body.question, history=history)
+
+    if not decision.in_scope or not decision.question_clear or (
+        not decision.retrieve_information and decision.tool == "none"
+    ):
+        answer = (
+            decision.follow_up_question if decision.in_scope and not decision.question_clear
+            else decision.direct_answer
+        )
+        append_turn(session_id, body.question, answer)
+        yield {"type": "result", "data": ChatResponse(
+            answer=answer, sources=[], session_id=session_id,
+        )}
+        return
+
+    context: list[dict] = []
+    if decision.tool == "exchange_rates":
+        yield {"type": "phase", "phase": "exchange_rates"}
+        context.extend(get_exchange_rate_context(decision.language))
+    if decision.retrieve_information:
+        yield {"type": "phase", "phase": "retrieving"}
+        context.extend(build_context(decision.search_query, decision.language))
+
+    yield {"type": "phase", "phase": "generating"}
+    final_answer = llm.answer(
+        question=body.question,
+        search_query=decision.search_query,
+        language=decision.language,
+        context=context,
+        history=history,
+    )
+    history_answer = "\n".join(part.text for part in final_answer.parts)
+    append_turn(session_id, body.question, history_answer)
+
+    sources = [
+        Source(
+            title=item.get("title"),
+            page_url=item["page_url"],
+            score=float(item["score"]),
+        )
+        for item in context
+    ]
+    yield {"type": "result", "data": ChatResponse(
+        answer=format_answer_with_links(final_answer.parts, sources),
+        sources=sources,
+        session_id=session_id,
+        parts=final_answer.parts,
+    )}
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat(body: ChatRequest) -> ChatResponse:
-    session_id = body.session_id or str(uuid.uuid4())
-
+    """Keep the existing JSON API for clients that do not need progress."""
     try:
-        llm = LLMService()
-        history = get_history(session_id)
-
-        # LLM call #1: understand the user's request
-        decision = llm.analyze(
-            body.question,
-            history=history,
-        )
-
-        if not decision.in_scope:
-            return ChatResponse(
-                answer=decision.direct_answer,
-                sources=[],
-                session_id=session_id,
-                )
-
-        # The question is unclear -> ask a clarification question.
-        if not decision.question_clear:
-            answer = decision.follow_up_question
-
-            append_turn(
-                session_id,
-                body.question,
-                answer,
-            )
-
-            return ChatResponse(
-                answer=answer,
-                sources=[],
-                session_id=session_id,
-            )
-
-        # No retrieval required -> use the answer generated by LLM #1.
-        if not decision.retrieve_information:
-            answer = decision.direct_answer
-
-            append_turn(
-                session_id,
-                body.question,
-                answer,
-            )
-
-            return ChatResponse(
-                answer=answer,
-                sources=[],
-                session_id=session_id,
-            )
-
-        # Retrieval required.
-        # IMPORTANT: use the corrected search query, not the raw question.
-        context = build_context(
-            decision.search_query,
-            decision.language,
-        )
-
-        # LLM call #2: generate the grounded final answer.
-        final_answer = llm.answer(
-            question=body.question,
-            search_query=decision.search_query,
-            language=decision.language,
-            context=context,
-            history=history,
-        )
-        history_answer = "\n".join(part.text for part in final_answer.parts)
-
-        append_turn(
-            session_id,
-            body.question,
-            history_answer,
-        )
-
-        sources = [
-            Source(
-                title=item.get("title"),
-                page_url=item["page_url"],
-                score=float(item["score"]),
-            )
-            for item in context
-        ]
-
-        return ChatResponse(
-            answer=format_answer_with_links(final_answer.parts, sources),
-            sources=sources,
-            session_id=session_id,
-            parts=final_answer.parts,
-        )
-
+        for event in _chat_events(body):
+            if event["type"] == "result":
+                return event["data"]
+        raise RuntimeError("The chat completed without an answer.")
     except RateLimitError as exc:
         raise HTTPException(
             status_code=503,
             detail="The AI service is temporarily rate-limited. Please try again later.",
         ) from exc
     except RuntimeError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=str(exc),
-        ) from exc
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/chat/stream")
+def chat_stream(body: ChatRequest) -> StreamingResponse:
+    """Send newline-delimited progress events over the same POST request."""
+    def events() -> Iterator[str]:
+        try:
+            for event in _chat_events(body):
+                if event["type"] == "result":
+                    event["data"] = event["data"].model_dump()
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except RateLimitError:
+            yield json.dumps({
+                "type": "error",
+                "detail": "The AI service is temporarily rate-limited. Please try again later.",
+            }) + "\n"
+        except RuntimeError as exc:
+            yield json.dumps({"type": "error", "detail": str(exc)}) + "\n"
+        except Exception:
+            logger.exception("chat.stream_failed")
+            yield json.dumps({
+                "type": "error",
+                "detail": "The chat service could not complete this request. Please try again.",
+            }) + "\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )

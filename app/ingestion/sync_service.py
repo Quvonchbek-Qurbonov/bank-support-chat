@@ -23,8 +23,8 @@ from app.ingestion.normalizer import (
     extract_page_sections,
     normalize_whitespace,
 )
-from app.rag.embeddings import EmbeddingService
-from app.rag.vector_store import VectorStore
+from app.encoder.embeddings import EmbeddingService
+from app.vector_db.vector_store import VectorStore
 
 
 logger = logging.getLogger("agrobank.sync")

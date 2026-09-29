@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -36,3 +37,17 @@ class ChatResponse(BaseModel):
     sources: list[Source]
     session_id: str
     parts: list[AnswerPart] | None = None
+
+
+class SessionMessagesRequest(BaseModel):
+    session_id: UUID
+
+
+class ChatSession(BaseModel):
+    session_id: str
+    title: str
+
+
+class SavedMessage(BaseModel):
+    role: str
+    content: str

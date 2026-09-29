@@ -23,6 +23,7 @@ class ChatDecision(BaseModel):
     question_clear: bool
     in_scope: bool
     retrieve_information: bool
+    tool: Literal["none", "exchange_rates"] = "none"
     language: Literal["uz", "ru", "en"]
     follow_up_question: str
     search_query: str
@@ -35,6 +36,7 @@ CHAT_DECISION_SCHEMA = {
         "question_clear": {"type": "boolean"},
         "in_scope": {"type": "boolean"},
         "retrieve_information": {"type": "boolean"},
+        "tool": {"type": "string", "enum": ["none", "exchange_rates"]},
         "language": {"type": "string", "enum": ["uz", "ru", "en"]},
         "follow_up_question": {"type": "string"},
         "search_query": {"type": "string"},
@@ -44,6 +46,7 @@ CHAT_DECISION_SCHEMA = {
         "question_clear",
         "in_scope",
         "retrieve_information",
+        "tool",
         "language",
         "follow_up_question",
         "search_query",
@@ -163,12 +166,13 @@ class LLMService:
 
         logger.info(
             "llm.router_completed model=%s language=%s in_scope=%s clear=%s "
-            "retrieval_needed=%s duration_ms=%.1f",
+            "retrieval_needed=%s tool=%s duration_ms=%.1f",
             self.router_model,
             decision.language,
             decision.in_scope,
             decision.question_clear,
             decision.retrieve_information,
+            decision.tool,
             (time.monotonic() - started) * 1000,
         )
 
@@ -176,6 +180,9 @@ class LLMService:
 
     @staticmethod
     def _validate_decision(decision: ChatDecision) -> None:
+        if not decision.in_scope and decision.tool != "none":
+            raise RuntimeError("An out-of-scope question cannot use a live tool.")
+
         if not decision.question_clear:
             if not decision.follow_up_question.strip():
                 raise RuntimeError(
@@ -189,13 +196,18 @@ class LLMService:
                     "cannot require retrieval."
                 )
 
+            if decision.tool != "none":
+                raise RuntimeError("An unclear question cannot use a live tool.")
+
             return
 
-        if decision.retrieve_information:
-            if not decision.search_query.strip():
+        if decision.retrieve_information or decision.tool != "none":
+            if decision.retrieve_information and not decision.search_query.strip():
                 raise RuntimeError(
                     "Router requested retrieval without a search query."
                 )
+            if not decision.retrieve_information and decision.search_query.strip():
+                raise RuntimeError("Router supplied a search query without vector retrieval.")
 
             if decision.follow_up_question.strip():
                 raise RuntimeError(

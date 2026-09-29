@@ -12,7 +12,7 @@ from qdrant_client.http.models import (
 )
 
 from app.core.config import settings
-from app.rag.sparse_embeddings import get_sparse_embedding_service
+from app.encoder.sparse_embeddings import get_sparse_embedding_service
 
 
 SPARSE_VECTOR_NAME = "bm25"

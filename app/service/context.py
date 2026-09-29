@@ -1,9 +1,9 @@
 import logging
 import time
 
-from app.rag.embeddings import get_embedding_service
-from app.rag.vector_store import get_vector_store
-from app.rag.reranker import get_reranker
+from app.encoder.embeddings import get_embedding_service
+from app.vector_db.vector_store import get_vector_store
+from app.encoder.reranker import get_reranker
 from app.core.config import settings
 
 
